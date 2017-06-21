@@ -1,0 +1,132 @@
+
+
+* National analysis
+
+	clear
+	use "$dd/ngunstor.dta", clear
+	
+	* national
+	* fatal 
+	list year numevents ageadjustedrate if fatal==1 & gp==0
+	
+	* nonfatal 
+	list year numevents ageadjustedrate if fatal==0 & gp==0
+	
+	* female
+	* fatal 
+	list year numevents ageadjustedrate if fatal==1 & gp==1
+	
+	* nonfatal 
+	list year numevents ageadjustedrate if fatal==0 & gp==1
+	
+	* male
+	* fatal 
+	list year numevents ageadjustedrate if fatal==1 & gp==2
+	
+	* nonfatal 
+	list year numevents ageadjustedrate if fatal==0 & gp==2
+	
+	* age 0-15
+	* fatal 
+	list year numevents cruderate if fatal==1 & gp==3
+	
+	* nonfatal 
+	list year numevents cruderate if fatal==0 & gp==3
+	
+	* age 16-45
+	* fatal 
+	list year numevents cruderate if fatal==1 & gp==4
+	
+	* nonfatal 
+	list year numevents cruderate if fatal==0 & gp==4
+	
+	* age 46-60
+	* fatal 
+	list year numevents cruderate if fatal==1 & gp==5
+	
+	* nonfatal 
+	list year numevents cruderate if fatal==0 & gp==5
+	
+	* age 61+
+	* fatal 
+	list year numevents cruderate if fatal==1 & gp==6
+	
+	* nonfatal 
+	list year numevents cruderate if fatal==0 & gp==6
+	
+	
+	* race/ethnicity
+	* non-hispanic white
+	* fatal 
+	list year numevents ageadjustedrate if fatal==1 & gp==7
+	
+	* nonfatal 
+	list year numevents cruderate if fatal==0 & gp==7
+	
+	* black
+	* fatal 
+	list year numevents ageadjustedrate if fatal==1 & gp==8
+	
+	* nonfatal 
+	list year numevents cruderate if fatal==0 & gp==8
+	
+	* hispanic 
+	* fatal 
+	list year numevents ageadjustedrate if fatal==1 & gp==9
+	
+	* nonfatal 
+	list year numevents cruderate if fatal==0 & gp==9
+	
+	* other
+	* fatal 
+	list year numevents ageadjustedrate if fatal==1 & gp==10
+	
+	* nonfatal 
+	list year numevents cruderate if fatal==0 & gp==10
+	
+	
+	* intent
+	* homicide
+	* fatal 
+	list year numevents ageadjustedrate if fatal==1 & gp==11
+	
+	* nonfatal 
+	list year numevents ageadjustedrate if fatal==0 & gp==11
+	
+	* suicide
+	* fatal 
+	list year numevents ageadjustedrate if fatal==1 & gp==12
+	
+	* nonfatal 
+	list year numevents ageadjustedrate if fatal==0 & gp==12
+	
+	* unintentional 
+	* fatal 
+	list year numevents ageadjustedrate if fatal==1 & gp==13
+	
+	* nonfatal 
+	list year numevents ageadjustedrate if fatal==0 & gp==13
+	
+	* undetermined
+	* fatal 
+	list year numevents ageadjustedrate if fatal==1 & gp==14
+	
+	* nonfatal 
+	list year numevents ageadjustedrate if fatal==0 & gp==14
+	
+	* legal
+	* fatal 
+	list year numevents ageadjustedrate if fatal==1 & gp==15
+	
+	* nonfatal 
+	list year numevents ageadjustedrate if fatal==0 & gp==15
+	
+	
+	
+	
+	
+	
+	
+	
+	
+	
