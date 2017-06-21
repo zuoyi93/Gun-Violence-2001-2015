@@ -1,0 +1,2475 @@
+
+############################################################################################################
+# join point regression using segmented
+# https://www.r-bloggers.com/statistically-significant-trends-with-multiple-years-of-complex-survey-data/
+#######################################################################################################
+# CONTENTS
+# 1) install
+# 2) library
+# 3) add programs
+# 4) data
+# 5) analysis
+  # 5a) overall: fatal, non-fatal
+  # 5b) sex- female: fatal, non-fatal
+  # 5c) sex- male: fatal, non-fatal
+  # 5d) age 0-15: fatal, non-fatal
+  # 5e) age 16-45: fatal, non-fatal
+  # 5f) age 46-60: fatal, non-fatal
+  # 5g) age 61: fatal, non-fatal
+  # 5h) nhwhite: fatal, non-fatal
+  # 5i) black: fatal, non-fatal
+  # 5j) Hispanic: fatal, non-fatal
+  # 5k) other: fatal, non-fatal
+  # 5l) homicide: fatal, non-fatal
+  # 5m) suicide: fatal, non-fatal
+  # 5n) unintentional: fatal, non-fatal
+  # 5o) undetermined: fatal, non-fatal
+  # 5p) legal: fatal, non-fatal
+
+
+###############################################################################
+# 1) install
+install.packages("installr")
+install.packages("downloader")
+install.packages("segmented")
+install.packages("downloader")
+install.packages("plyr" )
+install.packages("survey")
+install.packages("ggplot2")
+install.packages("ggthemes")
+install.packages("texreg") 
+install.packages("SAScii")
+install.packages("survey")
+install.packages("haven")
+install.packages("foreign")
+install.packages("predictmeans")
+install.packages("trend", "TrendInTrend")
+install.packages("strucchange")
+
+############################################################################################################
+# 
+# 2) library
+library(downloader)
+library(SAScii) # load the SAScii package (imports ascii data with a SAS script)
+library(survey)
+
+############################################################################################################
+
+# 1) Data Importation
+# /Users/kalesan/Google Drive/Current Projects/107_1_YRBS/08_Database/Original/sadc_2015_national.dat
+# https://github.com/ajdamico/asdfree/blob/master/Youth%20Risk%20Behavior%20Surveillance%20System/download%20all%20microdata.R
+library(downloader)
+#setwd( "/Users/kalesan/Google Drive/Current Projects/107_1_YRBS/08_Database/Original/micro/" )
+#source_url( "https://raw.githubusercontent.com/ajdamico/asdfree/master/Youth%20Risk%20Behavior%20Surveillance%20System/download%20all%20microdata.R" , prompt = FALSE , echo = TRUE )
+
+############################################################################################################
+
+# 2) Load Required Packages, Options, External Functions
+# Muggeo V. (2008) Segmented: an R package to fit regression models with broken-line relationships. R News, 8, 1: 20-25.
+library(segmented)  # determine segmented relationships in regression models
+library(downloader) # downloads and then runs the source() function on scripts from github
+library(plyr)       # contains the rbind.fill() function, which stacks two data frames even if they don't contain the same columns.  the rbind() function does not do this
+library(survey)     # load survey package (analyzes complex design surveys)
+library(ggplot2)    # load ggplot2 package (plots data according to the grammar of graphics)
+library(ggthemes)   # load extra themes, scales, and geoms for ggplot2
+library(texreg)     # converts output to latex tables       
+library(predictmeans)
+library(trend)
+library(strucchange)
+
+############################################################################################################
+# 3) add programs
+# set R to produce conservative standard errors instead of crashing
+# http://r-survey.r-forge.r-project.org/survey/exmample-lonely.html
+options( survey.lonely.psu = "adjust" )
+# this setting matches the MISSUNIT option in SUDAAN
+# SAS uses "remove" instead of "adjust" by default,
+# the table target replication was generated with SAS,
+# so if you want to get closer to that, use "remove"
+
+############################################################################################################
+
+# 4) read data
+
+# national
+library(haven)
+nat <- read_dta("~/Google Drive/Gun Violence Research/189_1_2001-2015/09_Analysis/03_stata/data/ngunstor.dta")
+head(nat)
+str(nat)
+
+# create factor year
+nat$yr <- as.factor(nat$year)
+factor(nat$yr)
+
+
+
+############################################################################################################
+# 5) analysis
+# https://rpubs.com/MarkusLoew/12164
+############################################################################################################
+
+# 5a) overall: fatal, non-fatal
+
+# overall - fatal
+a <- nat[ which(nat$gp==0 & nat$fatal==1), ]
+head(a)
+str(a)
+
+summary(a$yhat1)
+summary(a$ageadjustedrate)
+
+# create a figure to get an idea of the data
+
+p <- ggplot(a, aes(x = year, y = ageadjustedrate)) + geom_line() +
+  geom_errorbar(aes(ymax = ageadjustedrateupper95conf, ymin = ageadjustedratelower95conf), width=.2) +
+  ggtitle("2001-2015") +
+  theme(plot.title = element_text(size=9, face="bold"))
+p <- p + labs(x = "Year",
+              y = "Age-adjusted gun death rates per 100,000")
+p
+
+# create that weight variable.
+a$wgt <- with( a, ( ageadjustedrate / ageadjustedratestandarderror ) ^ 2 )
+
+# create a linear model
+my.lm1 <- lm(yhat1 ~ year, weights = wgt , data = a)
+summary(my.lm1)
+
+my.lm2 <- lm(ageadjustedrate ~ year, weights = wgt , data = a)
+summary(my.lm2)
+
+# Extract te coefficients from the overall model
+my.coef <- coef(my.lm2)
+
+# add the regression line to the graph
+# setting the aesthetics to a constant - this provides a name that we can reference later when we add additional layers
+p <- p + geom_abline(intercept = my.coef[1], 
+                     slope = my.coef[2], 
+                     aes(colour = "overall"))
+p
+
+#for fun: Polynom, third degree: ?poly
+# how to use a polynom in a linear model
+my.lm3 <- lm(ageadjustedrate ~ poly(year, 3), data = a)
+
+p + geom_smooth(method = "lm",
+                formula = y ~ poly(x, degree = 3), 
+                se = FALSE, colour = "orange")
+
+# Now for the actual break point analysis
+# -------------------
+# analyse breakpoints
+# -------------------
+# http://cran.r-project.org/doc/Rnews/Rnews_2008-1.pdf
+library(segmented)
+
+# have to provide estimates for breakpoints.
+# automatic procedure to estimate breakpoints in the covariate x
+# Notice: bootstrap restart is not allowed!
+my.seg0<-segmented.lm(my.lm2,seg.Z=~year,psi=list(year=NA),
+                      control=seg.control(stop.if.error=FALSE,n.boot=0, it.max=20))
+# display the summary
+summary(my.seg0)
+
+# figuring out the breakpoint year was the purpose of this joinpoint analysis.
+( your_breakpoint <- round( as.vector( my.seg0$psi[, "Est." ] ) ) ) 
+# 2011
+
+# so.  that's 2 joinpoints.  that's where the three line segments join.
+
+# obtain the annual percent change (APC=) estimates for each time point
+slope( my.seg0)
+slope( my.seg0 , APC = FALSE )
+slope( my.seg0 , APC = TRUE )
+
+
+#### overall - nonfatal #####
+
+a <- nat[ which(nat$gp==0 & nat$fatal==0), ]
+head(a)
+str(a)
+
+summary(a$yhat1)
+summary(a$ageadjustedrate)
+
+# create a figure to get an idea of the data
+
+p <- ggplot(a, aes(x = year, y = ageadjustedrate)) + geom_line() +
+  geom_errorbar(aes(ymax = ageadjustedrateupper95conf, ymin = ageadjustedratelower95conf), width=.2) +
+  ggtitle("2001-2015") +
+  theme(plot.title = element_text(size=9, face="bold"))
+p <- p + labs(x = "Year",
+              y = "Age-adjusted rates")
+p
+
+# create that weight variable.
+a$wgt <- with( a, ( ageadjustedrate / ageadjustedratestandarderror ) ^ 2 )
+
+# create a linear model
+my.lm1 <- lm(yhat1 ~ year, weights = wgt , data = a)
+summary(my.lm1)
+
+my.lm2 <- lm(ageadjustedrate ~ year, weights = wgt , data = a)
+summary(my.lm2)
+
+# Extract te coefficients from the overall model
+my.coef <- coef(my.lm2)
+
+# add the regression line to the graph
+# setting the aesthetics to a constant - this provides a name that we can reference later when we add additional layers
+p <- p + geom_abline(intercept = my.coef[1], 
+                     slope = my.coef[2], 
+                     aes(colour = "overall"))
+p
+
+#for fun: Polynom, third degree: ?poly
+# how to use a polynom in a linear model
+my.lm3 <- lm(ageadjustedrate ~ poly(year, 3), data = a)
+
+p + geom_smooth(method = "lm",
+                formula = y ~ poly(x, degree = 3), 
+                se = FALSE, colour = "orange")
+
+# Now for the actual break point analysis
+# -------------------
+# analyse breakpoints
+# -------------------
+# http://cran.r-project.org/doc/Rnews/Rnews_2008-1.pdf
+library(segmented)
+
+# have to provide estimates for breakpoints.
+# automatic procedure to estimate breakpoints in the covariate x
+# Notice: bootstrap restart is not allowed!
+my.seg0<-segmented.lm(my.lm2,seg.Z=~year,psi=list(year=NA),
+                      control=seg.control(stop.if.error=FALSE,n.boot=0, it.max=20))
+# no breakpoint
+summary(my.seg0)
+summary(my.lm2)
+
+# APC from slope
+(exp(0.37238)-1)*100 # estimate
+(exp((0.37238-(1.96*0.07139)))-1)* 100 # lower
+(exp((0.37238+(1.96*0.07139)))-1)* 100 # upper
+############################################################################################################
+
+# 5b) sex- female: fatal, non-fatal
+
+# female - fatal
+library(haven)
+sex <- read_dta("~/Google Drive/Gun Violence Research/189_1_2001-2015/09_Analysis/03_stata/data/fatalnat1.dta")
+a <- sex[ which(sex$gp==1), ]
+head(a)
+str(a)
+
+a$ageadjustedrateupper95conf <- a$ageadjustedrate+(1.96*a$ageadjustedratestandarderror)
+a$ageadjustedratelower95conf <- a$ageadjustedrate-(1.96*a$ageadjustedratestandarderror)
+summary(a$yhat1)
+summary(a$ageadjustedrate)
+
+# create a figure to get an idea of the data
+
+p <- ggplot(a, aes(x = year, y = ageadjustedrate)) + geom_line() +
+  geom_errorbar(aes(ymax = ageadjustedrateupper95conf, ymin = ageadjustedratelower95conf), width=.2) +
+  ggtitle("2001-2015") +
+  theme(plot.title = element_text(size=9, face="bold"))
+p <- p + labs(x = "Year",
+              y = "Age-adjusted gun death rates per 100,000")
+p
+
+# create that weight variable.
+a$wgt <- with( a, ( ageadjustedrate / 0.01 ) ^ 2 )
+
+# create a linear model
+my.lm1 <- lm(yhat1 ~ year, weights = wgt , data = a)
+summary(my.lm1)
+
+my.lm2 <- lm(ageadjustedrate ~ year, weights = wgt , data = a)
+summary(my.lm2)
+
+# no need for weight
+my.lm2 <- lm(ageadjustedrate ~ year , data = a)
+summary(my.lm2)
+
+# Extract te coefficients from the overall model
+my.coef <- coef(my.lm2)
+
+# add the regression line to the graph
+# setting the aesthetics to a constant - this provides a name that we can reference later when we add additional layers
+p <- p + geom_abline(intercept = my.coef[1], 
+                     slope = my.coef[2], 
+                     aes(colour = "overall"))
+p
+
+#for fun: Polynom, third degree: ?poly
+# how to use a polynom in a linear model
+my.lm3 <- lm(ageadjustedrate ~ poly(year, 3), data = a)
+
+p + geom_smooth(method = "lm",
+                formula = y ~ poly(x, degree = 3), 
+                se = FALSE, colour = "orange")
+
+# Now for the actual break point analysis
+# -------------------
+# analyse breakpoints
+# -------------------
+# http://cran.r-project.org/doc/Rnews/Rnews_2008-1.pdf
+library(segmented)
+
+# have to provide estimates for breakpoints.
+# automatic procedure to estimate breakpoints in the covariate x
+# Notice: bootstrap restart is not allowed!
+my.seg0<-segmented.lm(my.lm2,seg.Z=~year,psi=list(year=NA),
+                      control=seg.control(stop.if.error=FALSE,n.boot=0, it.max=20))
+# display the summary
+summary(my.seg0)
+
+# figuring out the breakpoint year was the purpose of this joinpoint analysis.
+( your_breakpoint <- round( as.vector( my.seg0$psi[, "Est." ] ) ) ) 
+# 2008
+
+# so.  that's 2 joinpoints.  that's where the three line segments join.
+
+# obtain the annual percent change (APC=) estimates for each time point
+slope( my.seg0)
+slope( my.seg0 , APC = TRUE )
+
+#### female - nonfatal #####
+
+a <- nat[ which(nat$gp==1 & nat$fatal==0), ]
+head(a)
+str(a)
+
+summary(a$yhat1)
+summary(a$ageadjustedrate)
+
+# create a figure to get an idea of the data
+
+p <- ggplot(a, aes(x = year, y = ageadjustedrate)) + geom_line() +
+  geom_errorbar(aes(ymax = ageadjustedrateupper95conf, ymin = ageadjustedratelower95conf), width=.2) +
+  ggtitle("2001-2015") +
+  theme(plot.title = element_text(size=9, face="bold"))
+p <- p + labs(x = "Year",
+              y = "Age-adjusted rates")
+p
+
+# create that weight variable.
+a$wgt <- with( a, ( ageadjustedrate / ageadjustedratestandarderror ) ^ 2 )
+
+# create a linear model
+my.lm1 <- lm(yhat1 ~ year, weights = wgt , data = a)
+summary(my.lm1)
+
+my.lm2 <- lm(ageadjustedrate ~ year, weights = wgt , data = a)
+summary(my.lm2)
+
+# Extract te coefficients from the overall model
+my.coef <- coef(my.lm2)
+
+# add the regression line to the graph
+# setting the aesthetics to a constant - this provides a name that we can reference later when we add additional layers
+p <- p + geom_abline(intercept = my.coef[1], 
+                     slope = my.coef[2], 
+                     aes(colour = "overall"))
+p
+
+#for fun: Polynom, third degree: ?poly
+# how to use a polynom in a linear model
+my.lm3 <- lm(ageadjustedrate ~ poly(year, 3), data = a)
+
+p + geom_smooth(method = "lm",
+                formula = y ~ poly(x, degree = 3), 
+                se = FALSE, colour = "orange")
+
+# Now for the actual break point analysis
+# -------------------
+# analyse breakpoints
+# -------------------
+# http://cran.r-project.org/doc/Rnews/Rnews_2008-1.pdf
+library(segmented)
+
+# have to provide estimates for breakpoints.
+# automatic procedure to estimate breakpoints in the covariate x
+# Notice: bootstrap restart is not allowed!
+my.seg0<-segmented.lm(my.lm2,seg.Z=~year,psi=list(year=NA),
+                      control=seg.control(stop.if.error=FALSE,n.boot=0, it.max=20))
+# no breakpoint
+summary(my.seg0)
+summary(my.lm2)
+
+# APC from slope
+(exp(0.08553)-1)*100 # estimate
+(exp((0.08553-(1.96*0.02291)))-1)* 100 # lower
+(exp((0.08553+(1.96*0.02291)))-1)* 100 # upper
+
+
+############################################################################################################
+
+# 5c) sex- male: fatal, non-fatal
+
+# male - fatal
+library(haven)
+sex <- read_dta("~/Google Drive/Gun Violence Research/189_1_2001-2015/09_Analysis/03_stata/data/fatalnat1.dta")
+a <- sex[ which(sex$gp==2), ]
+head(a)
+str(a)
+
+a$ageadjustedrateupper95conf <- a$ageadjustedrate+(1.96*a$ageadjustedratestandarderror)
+a$ageadjustedratelower95conf <- a$ageadjustedrate-(1.96*a$ageadjustedratestandarderror)
+summary(a$yhat1)
+summary(a$ageadjustedrate)
+
+# create a figure to get an idea of the data
+
+p <- ggplot(a, aes(x = year, y = ageadjustedrate)) + geom_line() +
+  geom_errorbar(aes(ymax = ageadjustedrateupper95conf, ymin = ageadjustedratelower95conf), width=.2) +
+  ggtitle("2001-2015") +
+  theme(plot.title = element_text(size=9, face="bold"))
+p <- p + labs(x = "Year",
+              y = "Age-adjusted gun death rates per 100,000")
+p
+
+# create that weight variable.
+a$wgt <- with( a, ( ageadjustedrate / ageadjustedratestandarderror ) ^ 2 )
+
+# create a linear model
+my.lm1 <- lm(yhat1 ~ year, weights = wgt , data = a)
+summary(my.lm1)
+
+my.lm2 <- lm(ageadjustedrate ~ year, weights = wgt , data = a)
+summary(my.lm2)
+
+
+# Extract te coefficients from the overall model
+my.coef <- coef(my.lm2)
+
+# add the regression line to the graph
+# setting the aesthetics to a constant - this provides a name that we can reference later when we add additional layers
+p <- p + geom_abline(intercept = my.coef[1], 
+                     slope = my.coef[2], 
+                     aes(colour = "overall"))
+p
+
+#for fun: Polynom, third degree: ?poly
+# how to use a polynom in a linear model
+my.lm3 <- lm(ageadjustedrate ~ poly(year, 3), data = a)
+
+p + geom_smooth(method = "lm",
+                formula = y ~ poly(x, degree = 3), 
+                se = FALSE, colour = "orange")
+
+# Now for the actual break point analysis
+# -------------------
+# analyse breakpoints
+# -------------------
+# http://cran.r-project.org/doc/Rnews/Rnews_2008-1.pdf
+library(segmented)
+
+# have to provide estimates for breakpoints.
+# automatic procedure to estimate breakpoints in the covariate x
+# Notice: bootstrap restart is not allowed!
+my.seg0<-segmented.lm(my.lm2,seg.Z=~year,psi=list(year=NA),
+                      control=seg.control(stop.if.error=FALSE,n.boot=0, it.max=20))
+# display the summary
+summary(my.seg0)
+
+# No breakpoint estimated
+summary(my.seg0)
+summary(my.lm2)
+
+# APC from slope
+(exp(0.006168)-1)*100 # estimate
+(exp((0.006168-(1.96*0.025270)))-1)* 100 # lower
+(exp((0.006168+(1.96*0.025270)))-1)* 100 # upper
+
+#### male - nonfatal #####
+
+a <- nat[ which(nat$gp==2 & nat$fatal==0), ]
+head(a)
+str(a)
+
+summary(a$yhat1)
+summary(a$ageadjustedrate)
+
+# create a figure to get an idea of the data
+
+p <- ggplot(a, aes(x = year, y = ageadjustedrate)) + geom_line() +
+  geom_errorbar(aes(ymax = ageadjustedrateupper95conf, ymin = ageadjustedratelower95conf), width=.2) +
+  ggtitle("2001-2015") +
+  theme(plot.title = element_text(size=9, face="bold"))
+p <- p + labs(x = "Year",
+              y = "Age-adjusted rates")
+p
+
+# create that weight variable.
+a$wgt <- with( a, ( ageadjustedrate / ageadjustedratestandarderror ) ^ 2 )
+
+# create a linear model
+my.lm1 <- lm(yhat1 ~ year, weights = wgt , data = a)
+summary(my.lm1)
+
+my.lm2 <- lm(ageadjustedrate ~ year, weights = wgt , data = a)
+summary(my.lm2)
+
+# Extract te coefficients from the overall model
+my.coef <- coef(my.lm2)
+
+# add the regression line to the graph
+# setting the aesthetics to a constant - this provides a name that we can reference later when we add additional layers
+p <- p + geom_abline(intercept = my.coef[1], 
+                     slope = my.coef[2], 
+                     aes(colour = "overall"))
+p
+
+#for fun: Polynom, third degree: ?poly
+# how to use a polynom in a linear model
+my.lm3 <- lm(ageadjustedrate ~ poly(year, 3), data = a)
+
+p + geom_smooth(method = "lm",
+                formula = y ~ poly(x, degree = 3), 
+                se = FALSE, colour = "orange")
+
+# Now for the actual break point analysis
+# -------------------
+# analyse breakpoints
+# -------------------
+# http://cran.r-project.org/doc/Rnews/Rnews_2008-1.pdf
+library(segmented)
+
+# have to provide estimates for breakpoints.
+# automatic procedure to estimate breakpoints in the covariate x
+# Notice: bootstrap restart is not allowed!
+my.seg0<-segmented.lm(my.lm2,seg.Z=~year,psi=list(year=NA),
+                      control=seg.control(stop.if.error=FALSE,n.boot=0, it.max=20))
+# no breakpoint
+summary(my.seg0)
+summary(my.lm2)
+
+# APC from slope
+(exp(0.6549)-1)*100 # estimate
+(exp((0.6549-(1.96*0.1412)))-1)* 100 # lower
+(exp((0.6549+(1.96*0.1412)))-1)* 100 # upper
+
+
+############################################################################################################
+
+# 5d) age 0-15: fatal, non-fatal
+#  fatal
+a <- nat[ which(nat$gp==3 & nat$fatal==1), ]
+head(a)
+str(a)
+
+summary(a$yhat1)
+summary(a$cruderate)
+
+# create a figure to get an idea of the data
+# cruderate cruderatelower95confidence cruderateupper95confidence
+
+p <- ggplot(a, aes(x = year, y = cruderate)) + geom_line() +
+  geom_errorbar(aes(ymax = cruderateupper95confidence, ymin = cruderatelower95confidence), width=.2) +
+  ggtitle("2001-2015") +
+  theme(plot.title = element_text(size=9, face="bold"))
+p <- p + labs(x = "Year",
+              y = "Crude gun death rates per 100,000")
+p
+
+# create that weight variable.
+a$wgt <- with( a, ( cruderate / cruderatestandarderror ) ^ 2 )
+
+# create a linear model
+my.lm1 <- lm(yhat1 ~ year, weights = wgt , data = a)
+summary(my.lm1)
+
+my.lm2 <- lm(cruderate ~ year, weights = wgt , data = a)
+summary(my.lm2)
+
+# no weight
+my.lm2 <- lm(cruderate ~ year, data = a)
+summary(my.lm2)
+
+# Extract te coefficients from the overall model
+my.coef <- coef(my.lm2)
+
+# add the regression line to the graph
+# setting the aesthetics to a constant - this provides a name that we can reference later when we add additional layers
+p <- p + geom_abline(intercept = my.coef[1], 
+                     slope = my.coef[2], 
+                     aes(colour = "overall"))
+p
+
+#for fun: Polynom, third degree: ?poly
+# how to use a polynom in a linear model
+my.lm3 <- lm(cruderate ~ poly(year, 3), data = a)
+
+p + geom_smooth(method = "lm",
+                formula = y ~ poly(x, degree = 3), 
+                se = FALSE, colour = "orange")
+
+# Now for the actual break point analysis
+# -------------------
+# analyse breakpoints
+# -------------------
+# http://cran.r-project.org/doc/Rnews/Rnews_2008-1.pdf
+library(segmented)
+
+# have to provide estimates for breakpoints.
+# automatic procedure to estimate breakpoints in the covariate x
+# Notice: bootstrap restart is not allowed!
+my.seg0<-segmented.lm(my.lm2,seg.Z=~year,psi=list(year=NA),
+                      control=seg.control(stop.if.error=FALSE,n.boot=0, it.max=20))
+# display the summary
+summary(my.seg0)
+
+# figuring out the breakpoint year was the purpose of this joinpoint analysis.
+( your_breakpoint <- round( as.vector( my.seg0$psi[, "Est." ] ) ) ) 
+# 2012
+
+# so.  that's 2 joinpoints.  that's where the three line segments join.
+
+# obtain the annual percent change (APC=) estimates for each time point
+slope( my.seg0)
+slope( my.seg0 , APC = TRUE )
+
+
+#### nonfatal #####
+
+a <- nat[ which(nat$gp==3 & nat$fatal==0), ]
+head(a)
+str(a)
+
+summary(a$yhat1)
+summary(a$cruderate)
+
+# create a figure to get an idea of the data
+
+p <- ggplot(a, aes(x = year, y = cruderate)) + geom_line() +
+  geom_errorbar(aes(ymax = cruderateupper95conf, ymin = cruderatelower95conf), width=.2) +
+  ggtitle("2001-2015") +
+  theme(plot.title = element_text(size=9, face="bold"))
+p <- p + labs(x = "Year",
+              y = "Crude non-fatal rates")
+p
+
+# create that weight variable.
+a$wgt <- with( a, ( cruderate / cruderatestandarderror ) ^ 2 )
+
+# create a linear model
+my.lm1 <- lm(yhat1 ~ year, weights = wgt , data = a)
+summary(my.lm1)
+
+my.lm2 <- lm(cruderate ~ year, weights = wgt , data = a)
+summary(my.lm2)
+
+# Extract te coefficients from the overall model
+my.coef <- coef(my.lm2)
+
+# add the regression line to the graph
+# setting the aesthetics to a constant - this provides a name that we can reference later when we add additional layers
+p <- p + geom_abline(intercept = my.coef[1], 
+                     slope = my.coef[2], 
+                     aes(colour = "overall"))
+p
+
+#for fun: Polynom, third degree: ?poly
+# how to use a polynom in a linear model
+my.lm3 <- lm(cruderate ~ poly(year, 3), data = a)
+
+p + geom_smooth(method = "lm",
+                formula = y ~ poly(x, degree = 3), 
+                se = FALSE, colour = "orange")
+
+# Now for the actual break point analysis
+# -------------------
+# analyse breakpoints
+# -------------------
+# http://cran.r-project.org/doc/Rnews/Rnews_2008-1.pdf
+library(segmented)
+
+# have to provide estimates for breakpoints.
+# automatic procedure to estimate breakpoints in the covariate x
+# Notice: bootstrap restart is not allowed!
+my.seg0<-segmented.lm(my.lm2,seg.Z=~year,psi=list(year=NA),
+                      control=seg.control(stop.if.error=FALSE,n.boot=0, it.max=20))
+# no breakpoint
+summary(my.seg0)
+summary(my.lm2)
+
+# APC from slope
+(exp(-0.09047)-1)*100 # estimate
+(exp((-0.09047-(1.96*0.05826)))-1)* 100 # lower
+(exp((-0.09047+(1.96*0.05826)))-1)* 100 # upper
+
+
+############################################################################################################
+
+# 5e) age 16-45: fatal, non-fatal
+#  fatal
+a <- nat[ which(nat$gp==4 & nat$fatal==1), ]
+head(a)
+str(a)
+
+summary(a$yhat1)
+summary(a$cruderate)
+
+# create a figure to get an idea of the data
+# cruderate cruderatelower95confidence cruderateupper95confidence
+
+p <- ggplot(a, aes(x = year, y = cruderate)) + geom_line() +
+  geom_errorbar(aes(ymax = cruderateupper95confidence, ymin = cruderatelower95confidence), width=.2) +
+  ggtitle("2001-2015") +
+  theme(plot.title = element_text(size=9, face="bold"))
+p <- p + labs(x = "Year",
+              y = "Crude gun death rates per 100,000")
+p
+
+# create that weight variable.
+a$wgt <- with( a, ( cruderate / cruderatestandarderror ) ^ 2 )
+
+# create a linear model
+my.lm1 <- lm(yhat1 ~ year, weights = wgt , data = a)
+summary(my.lm1)
+
+my.lm2 <- lm(cruderate ~ year, weights = wgt , data = a)
+summary(my.lm2)
+
+
+# Extract te coefficients from the overall model
+my.coef <- coef(my.lm2)
+
+# add the regression line to the graph
+# setting the aesthetics to a constant - this provides a name that we can reference later when we add additional layers
+p <- p + geom_abline(intercept = my.coef[1], 
+                     slope = my.coef[2], 
+                     aes(colour = "overall"))
+p
+
+#for fun: Polynom, third degree: ?poly
+# how to use a polynom in a linear model
+my.lm3 <- lm(cruderate ~ poly(year, 3), data = a)
+
+p + geom_smooth(method = "lm",
+                formula = y ~ poly(x, degree = 3), 
+                se = FALSE, colour = "orange")
+
+# Now for the actual break point analysis
+# -------------------
+# analyse breakpoints
+# -------------------
+# http://cran.r-project.org/doc/Rnews/Rnews_2008-1.pdf
+library(segmented)
+
+# have to provide estimates for breakpoints.
+# automatic procedure to estimate breakpoints in the covariate x
+# Notice: bootstrap restart is not allowed!
+my.seg0<-segmented.lm(my.lm2,seg.Z=~year,psi=list(year=NA),
+                      control=seg.control(stop.if.error=FALSE,n.boot=0, it.max=20))
+# display the summary
+summary(my.seg0)
+
+# figuring out the breakpoint year was the purpose of this joinpoint analysis.
+( your_breakpoint <- round( as.vector( my.seg0$psi[, "Est." ] ) ) ) 
+# 2012
+
+# so.  that's 2 joinpoints.  that's where the three line segments join.
+
+# obtain the annual percent change (APC=) estimates for each time point
+slope( my.seg0)
+slope( my.seg0 , APC = TRUE )
+
+
+#### nonfatal #####
+
+a <- nat[ which(nat$gp==4 & nat$fatal==0), ]
+head(a)
+str(a)
+
+summary(a$yhat1)
+summary(a$cruderate)
+
+# create a figure to get an idea of the data
+
+p <- ggplot(a, aes(x = year, y = cruderate)) + geom_line() +
+  geom_errorbar(aes(ymax = cruderateupper95conf, ymin = cruderatelower95conf), width=.2) +
+  ggtitle("2001-2015") +
+  theme(plot.title = element_text(size=9, face="bold"))
+p <- p + labs(x = "Year",
+              y = "Crude non-fatal rates")
+p
+
+# create that weight variable.
+a$wgt <- with( a, ( cruderate / cruderatestandarderror ) ^ 2 )
+
+# create a linear model
+my.lm1 <- lm(yhat1 ~ year, weights = wgt , data = a)
+summary(my.lm1)
+
+my.lm2 <- lm(cruderate ~ year, weights = wgt , data = a)
+summary(my.lm2)
+
+# Extract te coefficients from the overall model
+my.coef <- coef(my.lm2)
+
+# add the regression line to the graph
+# setting the aesthetics to a constant - this provides a name that we can reference later when we add additional layers
+p <- p + geom_abline(intercept = my.coef[1], 
+                     slope = my.coef[2], 
+                     aes(colour = "overall"))
+p
+
+#for fun: Polynom, third degree: ?poly
+# how to use a polynom in a linear model
+my.lm3 <- lm(cruderate ~ poly(year, 3), data = a)
+
+p + geom_smooth(method = "lm",
+                formula = y ~ poly(x, degree = 3), 
+                se = FALSE, colour = "orange")
+
+# Now for the actual break point analysis
+# -------------------
+# analyse breakpoints
+# -------------------
+# http://cran.r-project.org/doc/Rnews/Rnews_2008-1.pdf
+library(segmented)
+
+# have to provide estimates for breakpoints.
+# automatic procedure to estimate breakpoints in the covariate x
+# Notice: bootstrap restart is not allowed!
+my.seg0<-segmented.lm(my.lm2,seg.Z=~year,psi=list(year=NA),
+                      control=seg.control(stop.if.error=FALSE,n.boot=0, it.max=20))
+# no breakpoint
+summary(my.seg0)
+summary(my.lm2)
+
+# APC from slope
+(exp(0.8865)-1)*100 # estimate
+(exp((0.8865-(1.96*0.1615)))-1)* 100 # lower
+(exp((0.8865+(1.96*0.1615)))-1)* 100 # upper
+
+
+############################################################################################################
+
+# 5f) age 46-60: fatal, non-fatal
+#  fatal
+a <- nat[ which(nat$gp==5 & nat$fatal==1), ]
+head(a)
+str(a)
+
+summary(a$yhat1)
+summary(a$cruderate)
+
+# create a figure to get an idea of the data
+# cruderate cruderatelower95confidence cruderateupper95confidence
+
+p <- ggplot(a, aes(x = year, y = cruderate)) + geom_line() +
+  geom_errorbar(aes(ymax = cruderateupper95confidence, ymin = cruderatelower95confidence), width=.2) +
+  ggtitle("2001-2015") +
+  theme(plot.title = element_text(size=9, face="bold"))
+p <- p + labs(x = "Year",
+              y = "Crude gun death rates per 100,000")
+p
+
+# create that weight variable.
+a$wgt <- with( a, ( cruderate / cruderatestandarderror ) ^ 2 )
+
+# create a linear model
+my.lm1 <- lm(yhat1 ~ year, weights = wgt , data = a)
+summary(my.lm1)
+
+my.lm2 <- lm(cruderate ~ year, weights = wgt , data = a)
+summary(my.lm2)
+
+
+# Extract te coefficients from the overall model
+my.coef <- coef(my.lm2)
+
+# add the regression line to the graph
+# setting the aesthetics to a constant - this provides a name that we can reference later when we add additional layers
+p <- p + geom_abline(intercept = my.coef[1], 
+                     slope = my.coef[2], 
+                     aes(colour = "overall"))
+p
+
+#for fun: Polynom, third degree: ?poly
+# how to use a polynom in a linear model
+my.lm3 <- lm(cruderate ~ poly(year, 3), data = a)
+
+p + geom_smooth(method = "lm",
+                formula = y ~ poly(x, degree = 3), 
+                se = FALSE, colour = "orange")
+
+# Now for the actual break point analysis
+# -------------------
+# analyse breakpoints
+# -------------------
+# http://cran.r-project.org/doc/Rnews/Rnews_2008-1.pdf
+library(segmented)
+
+# have to provide estimates for breakpoints.
+# automatic procedure to estimate breakpoints in the covariate x
+# Notice: bootstrap restart is not allowed!
+my.seg0<-segmented.lm(my.lm2,seg.Z=~year,psi=list(year=NA),
+                      control=seg.control(stop.if.error=FALSE,n.boot=0, it.max=20))
+# no breakpoint
+summary(my.seg0)
+summary(my.lm2)
+
+# APC from slope
+(exp(0.15827)-1)*100 # estimate
+(exp((0.15827-(1.96*0.01656)))-1)* 100 # lower
+(exp((0.15827+(1.96*0.01656)))-1)* 100 # upper
+
+
+#### nonfatal #####
+
+a <- nat[ which(nat$gp==5 & nat$fatal==0), ]
+head(a)
+str(a)
+
+summary(a$yhat1)
+summary(a$cruderate)
+
+# create a figure to get an idea of the data
+
+p <- ggplot(a, aes(x = year, y = cruderate)) + geom_line() +
+  geom_errorbar(aes(ymax = cruderateupper95conf, ymin = cruderatelower95conf), width=.2) +
+  ggtitle("2001-2015") +
+  theme(plot.title = element_text(size=9, face="bold"))
+p <- p + labs(x = "Year",
+              y = "Crude non-fatal rates")
+p
+
+# create that weight variable.
+a$wgt <- with( a, ( cruderate / cruderatestandarderror ) ^ 2 )
+
+# create a linear model
+my.lm1 <- lm(yhat1 ~ year, weights = wgt , data = a)
+summary(my.lm1)
+
+my.lm2 <- lm(cruderate ~ year, weights = wgt , data = a)
+summary(my.lm2)
+
+# Extract te coefficients from the overall model
+my.coef <- coef(my.lm2)
+
+# add the regression line to the graph
+# setting the aesthetics to a constant - this provides a name that we can reference later when we add additional layers
+p <- p + geom_abline(intercept = my.coef[1], 
+                     slope = my.coef[2], 
+                     aes(colour = "overall"))
+p
+
+#for fun: Polynom, third degree: ?poly
+# how to use a polynom in a linear model
+my.lm3 <- lm(cruderate ~ poly(year, 3), data = a)
+
+p + geom_smooth(method = "lm",
+                formula = y ~ poly(x, degree = 3), 
+                se = FALSE, colour = "orange")
+
+# Now for the actual break point analysis
+# -------------------
+# analyse breakpoints
+# -------------------
+# http://cran.r-project.org/doc/Rnews/Rnews_2008-1.pdf
+library(segmented)
+
+# have to provide estimates for breakpoints.
+# automatic procedure to estimate breakpoints in the covariate x
+# Notice: bootstrap restart is not allowed!
+my.seg0<-segmented.lm(my.lm2,seg.Z=~year,psi=list(year=NA),
+                      control=seg.control(stop.if.error=FALSE,n.boot=0, it.max=20))
+# no breakpoint
+summary(my.seg0)
+summary(my.lm2)
+
+# APC from slope
+(exp(0.25023)-1)*100 # estimate
+(exp((0.25023-(1.96*0.04974)))-1)* 100 # lower
+(exp((0.25023+(1.96*0.04974)))-1)* 100 # upper
+
+
+############################################################################################################
+
+# 5g) age 61: fatal, non-fatal
+#  fatal
+a <- nat[ which(nat$gp==6 & nat$fatal==1), ]
+head(a)
+str(a)
+
+summary(a$yhat1)
+summary(a$cruderate)
+
+# create a figure to get an idea of the data
+# cruderate cruderatelower95confidence cruderateupper95confidence
+
+p <- ggplot(a, aes(x = year, y = cruderate)) + geom_line() +
+  geom_errorbar(aes(ymax = cruderateupper95confidence, ymin = cruderatelower95confidence), width=.2) +
+  ggtitle("2001-2015") +
+  theme(plot.title = element_text(size=9, face="bold"))
+p <- p + labs(x = "Year",
+              y = "Crude gun death rates per 100,000")
+p
+
+# create that weight variable.
+a$wgt <- with( a, ( cruderate / cruderatestandarderror ) ^ 2 )
+
+# create a linear model
+my.lm1 <- lm(yhat1 ~ year, weights = wgt , data = a)
+summary(my.lm1)
+
+my.lm2 <- lm(cruderate ~ year, weights = wgt , data = a)
+summary(my.lm2)
+
+
+# Extract te coefficients from the overall model
+my.coef <- coef(my.lm2)
+
+# add the regression line to the graph
+# setting the aesthetics to a constant - this provides a name that we can reference later when we add additional layers
+p <- p + geom_abline(intercept = my.coef[1], 
+                     slope = my.coef[2], 
+                     aes(colour = "overall"))
+p
+
+#for fun: Polynom, third degree: ?poly
+# how to use a polynom in a linear model
+my.lm3 <- lm(cruderate ~ poly(year, 3), data = a)
+
+p + geom_smooth(method = "lm",
+                formula = y ~ poly(x, degree = 3), 
+                se = FALSE, colour = "orange")
+
+# Now for the actual break point analysis
+# -------------------
+# analyse breakpoints
+# -------------------
+# http://cran.r-project.org/doc/Rnews/Rnews_2008-1.pdf
+library(segmented)
+
+# have to provide estimates for breakpoints.
+# automatic procedure to estimate breakpoints in the covariate x
+# Notice: bootstrap restart is not allowed!
+my.seg0<-segmented.lm(my.lm2,seg.Z=~year,psi=list(year=NA),
+                      control=seg.control(stop.if.error=FALSE,n.boot=0, it.max=20))
+# display the summary
+summary(my.seg0)
+
+# figuring out the breakpoint year was the purpose of this joinpoint analysis.
+( your_breakpoint <- round( as.vector( my.seg0$psi[, "Est." ] ) ) ) 
+# 2006
+
+# so.  that's 2 joinpoints.  that's where the three line segments join.
+
+# obtain the annual percent change (APC=) estimates for each time point
+slope( my.seg0)
+slope( my.seg0 , APC = TRUE )
+
+
+#### nonfatal #####
+
+a <- nat[ which(nat$gp==6 & nat$fatal==0), ]
+head(a)
+str(a)
+
+summary(a$yhat1)
+summary(a$cruderate)
+
+# create a figure to get an idea of the data
+
+p <- ggplot(a, aes(x = year, y = cruderate)) + geom_line() +
+  geom_errorbar(aes(ymax = cruderateupper95conf, ymin = cruderatelower95conf), width=.2) +
+  ggtitle("2001-2015") +
+  theme(plot.title = element_text(size=9, face="bold"))
+p <- p + labs(x = "Year",
+              y = "Crude non-fatal rates")
+p
+
+# create that weight variable.
+a$wgt <- with( a, ( cruderate / cruderatestandarderror ) ^ 2 )
+
+# create a linear model
+my.lm1 <- lm(yhat1 ~ year, weights = wgt , data = a)
+summary(my.lm1)
+
+my.lm2 <- lm(cruderate ~ year, weights = wgt , data = a)
+summary(my.lm2)
+
+# Extract te coefficients from the overall model
+my.coef <- coef(my.lm2)
+
+# add the regression line to the graph
+# setting the aesthetics to a constant - this provides a name that we can reference later when we add additional layers
+p <- p + geom_abline(intercept = my.coef[1], 
+                     slope = my.coef[2], 
+                     aes(colour = "overall"))
+p
+
+#for fun: Polynom, third degree: ?poly
+# how to use a polynom in a linear model
+my.lm3 <- lm(cruderate ~ poly(year, 3), data = a)
+
+p + geom_smooth(method = "lm",
+                formula = y ~ poly(x, degree = 3), 
+                se = FALSE, colour = "orange")
+
+# Now for the actual break point analysis
+# -------------------
+# analyse breakpoints
+# -------------------
+# http://cran.r-project.org/doc/Rnews/Rnews_2008-1.pdf
+library(segmented)
+
+# have to provide estimates for breakpoints.
+# automatic procedure to estimate breakpoints in the covariate x
+# Notice: bootstrap restart is not allowed!
+my.seg0<-segmented.lm(my.lm2,seg.Z=~year,psi=list(year=NA),
+                      control=seg.control(stop.if.error=FALSE,n.boot=0, it.max=20))
+# 
+summary(my.lm2)
+
+# figuring out the breakpoint year was the purpose of this joinpoint analysis.
+( your_breakpoint <- round( as.vector( my.seg0$psi[, "Est." ] ) ) ) 
+# 2007
+
+# so.  that's 2 joinpoints.  that's where the three line segments join.
+
+# obtain the annual percent change (APC=) estimates for each time point
+slope( my.seg0)
+slope( my.seg0 , APC = TRUE )
+
+
+############################################################################################################
+
+# 5h) nhwhite: fatal, non-fatal
+
+# fatal
+a <- nat[ which(nat$gp==7 & nat$fatal==1), ]
+head(a)
+str(a)
+
+summary(a$yhat1)
+summary(a$ageadjustedrate)
+
+# create a figure to get an idea of the data
+
+p <- ggplot(a, aes(x = year, y = ageadjustedrate)) + geom_line() +
+  ggtitle("2001-2015") +
+  theme(plot.title = element_text(size=9, face="bold"))
+p <- p + labs(x = "Year",
+              y = "Crude non-fatal rates")
+p
+
+# create that weight variable.
+a$wgt <- with( a, ( ageadjustedrate / 0.01 ) ^ 2 )
+
+# create a linear model
+my.lm1 <- lm(yhat1 ~ year, weights = wgt , data = a)
+summary(my.lm1)
+
+my.lm2 <- lm(ageadjustedrate ~ year, weights = wgt , data = a)
+summary(my.lm2)
+
+# no need for weight
+my.lm2 <- lm(ageadjustedrate ~ year , data = a)
+summary(my.lm2)
+
+# Extract te coefficients from the overall model
+my.coef <- coef(my.lm2)
+
+# add the regression line to the graph
+# setting the aesthetics to a constant - this provides a name that we can reference later when we add additional layers
+p <- p + geom_abline(intercept = my.coef[1], 
+                     slope = my.coef[2], 
+                     aes(colour = "overall"))
+p
+
+#for fun: Polynom, third degree: ?poly
+# how to use a polynom in a linear model
+my.lm3 <- lm(ageadjustedrate ~ poly(year, 3), data = a)
+
+p + geom_smooth(method = "lm",
+                formula = y ~ poly(x, degree = 3), 
+                se = FALSE, colour = "orange")
+
+# Now for the actual break point analysis
+# -------------------
+# analyse breakpoints
+# -------------------
+# http://cran.r-project.org/doc/Rnews/Rnews_2008-1.pdf
+library(segmented)
+
+# have to provide estimates for breakpoints.
+# automatic procedure to estimate breakpoints in the covariate x
+# Notice: bootstrap restart is not allowed!
+my.seg0<-segmented.lm(my.lm2,seg.Z=~year,psi=list(year=NA),
+                      control=seg.control(stop.if.error=FALSE,n.boot=0, it.max=20))
+# no breakpoint
+summary(my.seg0)
+summary(my.lm2)
+
+# APC from slope
+(exp(0.12366)-1)*100 # estimate
+(exp((0.12366-(1.96*0.01888)))-1)* 100 # lower
+(exp((0.12366+(1.96*0.01888)))-1)* 100 # upper
+
+#### nonfatal #####
+
+a <- nat[ which(nat$gp==7 & nat$fatal==0), ]
+head(a)
+str(a)
+
+summary(a$yhat1)
+summary(a$cruderate)
+
+# create a figure to get an idea of the data
+
+p <- ggplot(a, aes(x = year, y = cruderate)) + geom_line() +
+  geom_errorbar(aes(ymax = cruderateupper95conf, ymin = cruderatelower95conf), width=.2) +
+  ggtitle("2001-2015") +
+  theme(plot.title = element_text(size=9, face="bold"))
+p <- p + labs(x = "Year",
+              y = "Age-adjusted rates")
+p
+
+# create that weight variable.
+a$wgt <- with( a, ( cruderate / cruderatestandarderror ) ^ 2 )
+
+# create a linear model
+my.lm1 <- lm(yhat1 ~ year, weights = wgt , data = a)
+summary(my.lm1)
+
+my.lm2 <- lm(cruderate ~ year, weights = wgt , data = a)
+summary(my.lm2)
+
+# Extract te coefficients from the overall model
+my.coef <- coef(my.lm2)
+
+# add the regression line to the graph
+# setting the aesthetics to a constant - this provides a name that we can reference later when we add additional layers
+p <- p + geom_abline(intercept = my.coef[1], 
+                     slope = my.coef[2], 
+                     aes(colour = "overall"))
+p
+
+#for fun: Polynom, third degree: ?poly
+# how to use a polynom in a linear model
+my.lm3 <- lm(cruderate ~ poly(year, 3), data = a)
+
+p + geom_smooth(method = "lm",
+                formula = y ~ poly(x, degree = 3), 
+                se = FALSE, colour = "orange")
+
+# Now for the actual break point analysis
+# -------------------
+# analyse breakpoints
+# -------------------
+# http://cran.r-project.org/doc/Rnews/Rnews_2008-1.pdf
+library(segmented)
+
+# have to provide estimates for breakpoints.
+# automatic procedure to estimate breakpoints in the covariate x
+# Notice: bootstrap restart is not allowed!
+my.seg0<-segmented.lm(my.lm2,seg.Z=~year,psi=list(year=NA),
+                      control=seg.control(stop.if.error=FALSE,n.boot=0, it.max=20))
+# breakpoint
+summary(my.lm2)
+
+# figuring out the breakpoint year was the purpose of this joinpoint analysis.
+( your_breakpoint <- round( as.vector( my.seg0$psi[, "Est." ] ) ) ) 
+# 2012
+
+# so.  that's 2 joinpoints.  that's where the three line segments join.
+
+# obtain the annual percent change (APC=) estimates for each time point
+slope( my.seg0)
+slope( my.seg0 , APC = TRUE )
+############################################################################################################
+
+# 5i) black: fatal, non-fatal
+
+# fatal
+a <- nat[ which(nat$gp==8 & nat$fatal==1), ]
+head(a)
+str(a)
+
+summary(a$yhat1)
+summary(a$ageadjustedrate)
+
+# create a figure to get an idea of the data
+
+p <- ggplot(a, aes(x = year, y = ageadjustedrate)) + geom_line() +
+  ggtitle("2001-2015") +
+  theme(plot.title = element_text(size=9, face="bold"))
+p <- p + labs(x = "Year",
+              y = "Crude non-fatal rates")
+p
+
+# create that weight variable.
+a$wgt <- with( a, ( ageadjustedrate / 0.01 ) ^ 2 )
+
+# create a linear model
+my.lm1 <- lm(yhat1 ~ year, weights = wgt , data = a)
+summary(my.lm1)
+
+my.lm2 <- lm(ageadjustedrate ~ year, weights = wgt , data = a)
+summary(my.lm2)
+
+# no need for weight
+my.lm2 <- lm(ageadjustedrate ~ year , data = a)
+summary(my.lm2)
+
+# Extract te coefficients from the overall model
+my.coef <- coef(my.lm2)
+
+# add the regression line to the graph
+# setting the aesthetics to a constant - this provides a name that we can reference later when we add additional layers
+p <- p + geom_abline(intercept = my.coef[1], 
+                     slope = my.coef[2], 
+                     aes(colour = "overall"))
+p
+
+#for fun: Polynom, third degree: ?poly
+# how to use a polynom in a linear model
+my.lm3 <- lm(ageadjustedrate ~ poly(year, 3), data = a)
+
+p + geom_smooth(method = "lm",
+                formula = y ~ poly(x, degree = 3), 
+                se = FALSE, colour = "orange")
+
+# Now for the actual break point analysis
+# -------------------
+# analyse breakpoints
+# -------------------
+# http://cran.r-project.org/doc/Rnews/Rnews_2008-1.pdf
+library(segmented)
+
+# have to provide estimates for breakpoints.
+# automatic procedure to estimate breakpoints in the covariate x
+# Notice: bootstrap restart is not allowed!
+my.seg0<-segmented.lm(my.lm2,seg.Z=~year,psi=list(year=NA),
+                      control=seg.control(stop.if.error=FALSE,n.boot=0, it.max=20))
+# no breakpoint
+summary(my.seg0)
+summary(my.lm2)
+
+# APC from slope
+(exp(-0.13031)-1)*100 # estimate
+(exp((-0.13031-(1.96*0.05822)))-1)* 100 # lower
+(exp((-0.13031+(1.96*0.05822)))-1)* 100 # upper
+
+
+#### nonfatal #####
+
+a <- nat[ which(nat$gp==8 & nat$fatal==0), ]
+head(a)
+str(a)
+
+summary(a$yhat1)
+summary(a$cruderate)
+
+# create a figure to get an idea of the data
+
+p <- ggplot(a, aes(x = year, y = cruderate)) + geom_line() +
+  geom_errorbar(aes(ymax = cruderateupper95conf, ymin = cruderatelower95conf), width=.2) +
+  ggtitle("2001-2015") +
+  theme(plot.title = element_text(size=9, face="bold"))
+p <- p + labs(x = "Year",
+              y = "Age-adjusted rates")
+p
+
+# create that weight variable.
+a$wgt <- with( a, ( cruderate / cruderatestandarderror ) ^ 2 )
+
+# create a linear model
+my.lm1 <- lm(yhat1 ~ year, weights = wgt , data = a)
+summary(my.lm1)
+
+my.lm2 <- lm(cruderate ~ year, weights = wgt , data = a)
+summary(my.lm2)
+
+# Extract te coefficients from the overall model
+my.coef <- coef(my.lm2)
+
+# add the regression line to the graph
+# setting the aesthetics to a constant - this provides a name that we can reference later when we add additional layers
+p <- p + geom_abline(intercept = my.coef[1], 
+                     slope = my.coef[2], 
+                     aes(colour = "overall"))
+p
+
+#for fun: Polynom, third degree: ?poly
+# how to use a polynom in a linear model
+my.lm3 <- lm(cruderate ~ poly(year, 3), data = a)
+
+p + geom_smooth(method = "lm",
+                formula = y ~ poly(x, degree = 3), 
+                se = FALSE, colour = "orange")
+
+# Now for the actual break point analysis
+# -------------------
+# analyse breakpoints
+# -------------------
+# http://cran.r-project.org/doc/Rnews/Rnews_2008-1.pdf
+library(segmented)
+
+# have to provide estimates for breakpoints.
+# automatic procedure to estimate breakpoints in the covariate x
+# Notice: bootstrap restart is not allowed!
+my.seg0<-segmented.lm(my.lm2,seg.Z=~year,psi=list(year=NA),
+                      control=seg.control(stop.if.error=FALSE,n.boot=0, it.max=20))
+
+# no breakpoint
+summary(my.seg0)
+summary(my.lm2)
+
+# APC from slope
+(exp(-0.3935)-1)*100 # estimate
+(exp((-0.3935-(1.96*0.2820)))-1)* 100 # lower
+(exp((-0.3935+(1.96*0.2820)))-1)* 100 # upper
+
+############################################################################################################
+
+# 5j) Hispanic: fatal, non-fatal
+
+# fatal
+a <- nat[ which(nat$gp==9 & nat$fatal==1), ]
+head(a)
+str(a)
+
+summary(a$yhat1)
+summary(a$ageadjustedrate)
+
+# create a figure to get an idea of the data
+
+p <- ggplot(a, aes(x = year, y = ageadjustedrate)) + geom_line() +
+  ggtitle("2001-2015") +
+  theme(plot.title = element_text(size=9, face="bold"))
+p <- p + labs(x = "Year",
+              y = "Crude non-fatal rates")
+p
+
+# create that weight variable.
+a$wgt <- with( a, ( ageadjustedrate / 0.01 ) ^ 2 )
+
+# create a linear model
+my.lm1 <- lm(yhat1 ~ year, weights = wgt , data = a)
+summary(my.lm1)
+
+my.lm2 <- lm(ageadjustedrate ~ year, weights = wgt , data = a)
+summary(my.lm2)
+
+# no need for weight
+my.lm2 <- lm(ageadjustedrate ~ year , data = a)
+summary(my.lm2)
+
+# Extract te coefficients from the overall model
+my.coef <- coef(my.lm2)
+
+# add the regression line to the graph
+# setting the aesthetics to a constant - this provides a name that we can reference later when we add additional layers
+p <- p + geom_abline(intercept = my.coef[1], 
+                     slope = my.coef[2], 
+                     aes(colour = "overall"))
+p
+
+#for fun: Polynom, third degree: ?poly
+# how to use a polynom in a linear model
+my.lm3 <- lm(ageadjustedrate ~ poly(year, 3), data = a)
+
+p + geom_smooth(method = "lm",
+                formula = y ~ poly(x, degree = 3), 
+                se = FALSE, colour = "orange")
+
+# Now for the actual break point analysis
+# -------------------
+# analyse breakpoints
+# -------------------
+# http://cran.r-project.org/doc/Rnews/Rnews_2008-1.pdf
+library(segmented)
+
+# have to provide estimates for breakpoints.
+# automatic procedure to estimate breakpoints in the covariate x
+# Notice: bootstrap restart is not allowed!
+my.seg0<-segmented.lm(my.lm2,seg.Z=~year,psi=list(year=NA),
+                      control=seg.control(stop.if.error=FALSE,n.boot=0, it.max=20))
+# no breakpoint
+summary(my.seg0)
+
+# figuring out the breakpoint year was the purpose of this joinpoint analysis.
+( your_breakpoint <- round( as.vector( my.seg0$psi[, "Est." ] ) ) ) 
+# 2014
+
+# so.  that's 2 joinpoints.  that's where the three line segments join.
+
+# obtain the annual percent change (APC=) estimates for each time point
+slope( my.seg0)
+slope( my.seg0 , APC = TRUE )
+
+#### nonfatal #####
+
+a <- nat[ which(nat$gp==9 & nat$fatal==0), ]
+head(a)
+str(a)
+
+summary(a$yhat1)
+summary(a$cruderate)
+
+# create a figure to get an idea of the data
+
+p <- ggplot(a, aes(x = year, y = cruderate)) + geom_line() +
+  geom_errorbar(aes(ymax = cruderateupper95conf, ymin = cruderatelower95conf), width=.2) +
+  ggtitle("2001-2015") +
+  theme(plot.title = element_text(size=9, face="bold"))
+p <- p + labs(x = "Year",
+              y = "Age-adjusted rates")
+p
+
+# create that weight variable.
+a$wgt <- with( a, ( cruderate / cruderatestandarderror ) ^ 2 )
+
+# create a linear model
+my.lm1 <- lm(yhat1 ~ year, weights = wgt , data = a)
+summary(my.lm1)
+
+my.lm2 <- lm(cruderate ~ year, weights = wgt , data = a)
+summary(my.lm2)
+
+# Extract te coefficients from the overall model
+my.coef <- coef(my.lm2)
+
+# add the regression line to the graph
+# setting the aesthetics to a constant - this provides a name that we can reference later when we add additional layers
+p <- p + geom_abline(intercept = my.coef[1], 
+                     slope = my.coef[2], 
+                     aes(colour = "overall"))
+p
+
+#for fun: Polynom, third degree: ?poly
+# how to use a polynom in a linear model
+my.lm3 <- lm(cruderate ~ poly(year, 3), data = a)
+
+p + geom_smooth(method = "lm",
+                formula = y ~ poly(x, degree = 3), 
+                se = FALSE, colour = "orange")
+
+# Now for the actual break point analysis
+# -------------------
+# analyse breakpoints
+# -------------------
+# http://cran.r-project.org/doc/Rnews/Rnews_2008-1.pdf
+library(segmented)
+
+# have to provide estimates for breakpoints.
+# automatic procedure to estimate breakpoints in the covariate x
+# Notice: bootstrap restart is not allowed!
+my.seg0<-segmented.lm(my.lm2,seg.Z=~year,psi=list(year=NA),
+                      control=seg.control(stop.if.error=FALSE,n.boot=0, it.max=20))
+# breakpoint- 
+summary(my.seg0)
+
+# figuring out the breakpoint year was the purpose of this joinpoint analysis.
+( your_breakpoint <- round( as.vector( my.seg0$psi[, "Est." ] ) ) ) 
+# 2011
+
+# so.  that's 2 joinpoints.  that's where the three line segments join.
+
+# obtain the annual percent change (APC=) estimates for each time point
+slope( my.seg0)
+slope( my.seg0 , APC = TRUE )
+
+############################################################################################################
+
+# 5k) other: fatal, non-fatal
+
+# fatal
+a <- nat[ which(nat$gp==10 & nat$fatal==1), ]
+head(a)
+str(a)
+
+summary(a$yhat1)
+summary(a$ageadjustedrate)
+
+# create a figure to get an idea of the data
+
+p <- ggplot(a, aes(x = year, y = ageadjustedrate)) + geom_line() +
+  ggtitle("2001-2015") +
+  theme(plot.title = element_text(size=9, face="bold"))
+p <- p + labs(x = "Year",
+              y = "Crude non-fatal rates")
+p
+
+# create that weight variable.
+a$wgt <- with( a, ( ageadjustedrate / 0.01 ) ^ 2 )
+
+# create a linear model
+my.lm1 <- lm(yhat1 ~ year, weights = wgt , data = a)
+summary(my.lm1)
+
+my.lm2 <- lm(ageadjustedrate ~ year, weights = wgt , data = a)
+summary(my.lm2)
+
+# no need for weight
+my.lm2 <- lm(ageadjustedrate ~ year , data = a)
+summary(my.lm2)
+
+# Extract te coefficients from the overall model
+my.coef <- coef(my.lm2)
+
+# add the regression line to the graph
+# setting the aesthetics to a constant - this provides a name that we can reference later when we add additional layers
+p <- p + geom_abline(intercept = my.coef[1], 
+                     slope = my.coef[2], 
+                     aes(colour = "overall"))
+p
+
+#for fun: Polynom, third degree: ?poly
+# how to use a polynom in a linear model
+my.lm3 <- lm(ageadjustedrate ~ poly(year, 3), data = a)
+
+p + geom_smooth(method = "lm",
+                formula = y ~ poly(x, degree = 3), 
+                se = FALSE, colour = "orange")
+
+# Now for the actual break point analysis
+# -------------------
+# analyse breakpoints
+# -------------------
+# http://cran.r-project.org/doc/Rnews/Rnews_2008-1.pdf
+library(segmented)
+
+# have to provide estimates for breakpoints.
+# automatic procedure to estimate breakpoints in the covariate x
+# Notice: bootstrap restart is not allowed!
+my.seg0<-segmented.lm(my.lm2,seg.Z=~year,psi=list(year=NA),
+                      control=seg.control(stop.if.error=FALSE,n.boot=0, it.max=20))
+# no breakpoint
+summary(my.seg0)
+
+# figuring out the breakpoint year was the purpose of this joinpoint analysis.
+( your_breakpoint <- round( as.vector( my.seg0$psi[, "Est." ] ) ) ) 
+# 2013
+
+# so.  that's 2 joinpoints.  that's where the three line segments join.
+
+# obtain the annual percent change (APC=) estimates for each time point
+slope( my.seg0)
+slope( my.seg0 , APC = TRUE )
+
+#### nonfatal #####
+
+a <- nat[ which(nat$gp==10 & nat$fatal==0), ]
+head(a)
+str(a)
+
+summary(a$yhat1)
+summary(a$cruderate)
+
+# create a figure to get an idea of the data
+
+p <- ggplot(a, aes(x = year, y = cruderate)) + geom_line() +
+  geom_errorbar(aes(ymax = cruderateupper95conf, ymin = cruderatelower95conf), width=.2) +
+  ggtitle("2001-2015") +
+  theme(plot.title = element_text(size=9, face="bold"))
+p <- p + labs(x = "Year",
+              y = "Age-adjusted rates")
+p
+
+# create that weight variable.
+a$wgt <- with( a, ( cruderate / cruderatestandarderror ) ^ 2 )
+
+# create a linear model
+my.lm1 <- lm(yhat1 ~ year, weights = wgt , data = a)
+summary(my.lm1)
+
+my.lm2 <- lm(cruderate ~ year, weights = wgt , data = a)
+summary(my.lm2)
+
+# Extract te coefficients from the overall model
+my.coef <- coef(my.lm2)
+
+# add the regression line to the graph
+# setting the aesthetics to a constant - this provides a name that we can reference later when we add additional layers
+p <- p + geom_abline(intercept = my.coef[1], 
+                     slope = my.coef[2], 
+                     aes(colour = "overall"))
+p
+
+#for fun: Polynom, third degree: ?poly
+# how to use a polynom in a linear model
+my.lm3 <- lm(cruderate ~ poly(year, 3), data = a)
+
+p + geom_smooth(method = "lm",
+                formula = y ~ poly(x, degree = 3), 
+                se = FALSE, colour = "orange")
+
+# Now for the actual break point analysis
+# -------------------
+# analyse breakpoints
+# -------------------
+# http://cran.r-project.org/doc/Rnews/Rnews_2008-1.pdf
+library(segmented)
+
+# have to provide estimates for breakpoints.
+# automatic procedure to estimate breakpoints in the covariate x
+# Notice: bootstrap restart is not allowed!
+my.seg0<-segmented.lm(my.lm2,seg.Z=~year,psi=list(year=NA),
+                      control=seg.control(stop.if.error=FALSE,n.boot=0, it.max=20))
+# breakpoint- 
+summary(my.seg0)
+
+# figuring out the breakpoint year was the purpose of this joinpoint analysis.
+( your_breakpoint <- round( as.vector( my.seg0$psi[, "Est." ] ) ) ) 
+# 2003 2004
+
+# so.  that's 3 joinpoints.  that's where the three line segments join.
+
+# obtain the annual percent change (APC=) estimates for each time point
+slope( my.seg0)
+slope( my.seg0 , APC = TRUE )
+
+summary(my.lm2)
+
+# APC from slope
+(exp(-0.3883)-1)*100 # estimate
+(exp((-0.3883-(1.96*0.1210)))-1)* 100 # lower
+(exp((-0.3883+(1.96*0.1210)))-1)* 100 # upper
+
+############################################################################################################
+
+# 5l) homicide: fatal, non-fatal
+
+# fatal
+a <- nat[ which(nat$gp==11 & nat$fatal==1), ]
+head(a)
+str(a)
+
+summary(a$yhat1)
+summary(a$ageadjustedrate)
+
+# create a figure to get an idea of the data
+
+p <- ggplot(a, aes(x = year, y = ageadjustedrate)) + geom_line() +
+  geom_errorbar(aes(ymax = ageadjustedrateupper95conf, ymin = ageadjustedratelower95conf), width=.2) +
+  ggtitle("2001-2015") +
+  theme(plot.title = element_text(size=9, face="bold"))
+p <- p + labs(x = "Year",
+              y = "Age-adjusted gun death rates per 100,000")
+p
+
+# create that weight variable.
+a$wgt <- with( a, ( ageadjustedrate / ageadjustedratestandarderror ) ^ 2 )
+
+# create a linear model
+my.lm1 <- lm(yhat1 ~ year, weights = wgt , data = a)
+summary(my.lm1)
+
+my.lm2 <- lm(ageadjustedrate ~ year, weights = wgt , data = a)
+summary(my.lm2)
+
+# NO WEIGHT
+my.lm2 <- lm(ageadjustedrate ~ year, data = a)
+summary(my.lm2)
+
+# Extract te coefficients from the overall model
+my.coef <- coef(my.lm2)
+
+# add the regression line to the graph
+# setting the aesthetics to a constant - this provides a name that we can reference later when we add additional layers
+p <- p + geom_abline(intercept = my.coef[1], 
+                     slope = my.coef[2], 
+                     aes(colour = "overall"))
+p
+
+#for fun: Polynom, third degree: ?poly
+# how to use a polynom in a linear model
+my.lm3 <- lm(ageadjustedrate ~ poly(year, 3), data = a)
+
+p + geom_smooth(method = "lm",
+                formula = y ~ poly(x, degree = 3), 
+                se = FALSE, colour = "orange")
+
+# Now for the actual break point analysis
+# -------------------
+# analyse breakpoints
+# -------------------
+# http://cran.r-project.org/doc/Rnews/Rnews_2008-1.pdf
+library(segmented)
+
+# have to provide estimates for breakpoints.
+# automatic procedure to estimate breakpoints in the covariate x
+# Notice: bootstrap restart is not allowed!
+my.seg0<-segmented.lm(my.lm2,seg.Z=~year,psi=list(year=NA),
+                      control=seg.control(stop.if.error=FALSE,n.boot=0, it.max=20))
+# display the summary
+summary(my.seg0)
+
+# figuring out the breakpoint year was the purpose of this joinpoint analysis.
+( your_breakpoint <- round( as.vector( my.seg0$psi[, "Est." ] ) ) ) 
+# 2003
+
+# so.  that's 2 joinpoints.  that's where the three line segments join.
+
+# obtain the annual percent change (APC=) estimates for each time point
+slope( my.seg0)
+slope( my.seg0 , APC = TRUE )
+
+
+#### nonfatal #####
+
+a <- nat[ which(nat$gp==11 & nat$fatal==0), ]
+head(a)
+str(a)
+
+summary(a$yhat1)
+summary(a$ageadjustedrate)
+
+# create a figure to get an idea of the data
+
+p <- ggplot(a, aes(x = year, y = ageadjustedrate)) + geom_line() +
+  geom_errorbar(aes(ymax = ageadjustedrateupper95conf, ymin = ageadjustedratelower95conf), width=.2) +
+  ggtitle("2001-2015") +
+  theme(plot.title = element_text(size=9, face="bold"))
+p <- p + labs(x = "Year",
+              y = "Age-adjusted rates")
+p
+
+# create that weight variable.
+a$wgt <- with( a, ( ageadjustedrate / ageadjustedratestandarderror ) ^ 2 )
+
+# create a linear model
+my.lm1 <- lm(yhat1 ~ year, weights = wgt , data = a)
+summary(my.lm1)
+
+my.lm2 <- lm(ageadjustedrate ~ year, weights = wgt , data = a)
+summary(my.lm2)
+
+# Extract te coefficients from the overall model
+my.coef <- coef(my.lm2)
+
+# add the regression line to the graph
+# setting the aesthetics to a constant - this provides a name that we can reference later when we add additional layers
+p <- p + geom_abline(intercept = my.coef[1], 
+                     slope = my.coef[2], 
+                     aes(colour = "overall"))
+p
+
+#for fun: Polynom, third degree: ?poly
+# how to use a polynom in a linear model
+my.lm3 <- lm(ageadjustedrate ~ poly(year, 3), data = a)
+
+p + geom_smooth(method = "lm",
+                formula = y ~ poly(x, degree = 3), 
+                se = FALSE, colour = "orange")
+
+# Now for the actual break point analysis
+# -------------------
+# analyse breakpoints
+# -------------------
+# http://cran.r-project.org/doc/Rnews/Rnews_2008-1.pdf
+library(segmented)
+
+# have to provide estimates for breakpoints.
+# automatic procedure to estimate breakpoints in the covariate x
+# Notice: bootstrap restart is not allowed!
+my.seg0<-segmented.lm(my.lm2,seg.Z=~year,psi=list(year=NA),
+                      control=seg.control(stop.if.error=FALSE,n.boot=0, it.max=20))
+# no breakpoint
+# no breakpoint
+summary(my.seg0)
+summary(my.lm2)
+
+# APC from slope
+(exp(0.44623)-1)*100 # estimate
+(exp((0.44623-(1.96*0.07456)))-1)* 100 # lower
+(exp((0.44623+(1.96*0.07456)))-1)* 100 # upper
+
+############################################################################################################
+
+# 5m) suicide: fatal, non-fatal
+
+# fatal
+a <- nat[ which(nat$gp==12 & nat$fatal==1), ]
+head(a)
+str(a)
+
+summary(a$yhat1)
+summary(a$ageadjustedrate)
+
+# create a figure to get an idea of the data
+
+p <- ggplot(a, aes(x = year, y = ageadjustedrate)) + geom_line() +
+  geom_errorbar(aes(ymax = ageadjustedrateupper95conf, ymin = ageadjustedratelower95conf), width=.2) +
+  ggtitle("2001-2015") +
+  theme(plot.title = element_text(size=9, face="bold"))
+p <- p + labs(x = "Year",
+              y = "Age-adjusted gun death rates per 100,000")
+p
+
+# create that weight variable.
+a$wgt <- with( a, ( ageadjustedrate / ageadjustedratestandarderror ) ^ 2 )
+
+# create a linear model
+my.lm1 <- lm(yhat1 ~ year, weights = wgt , data = a)
+summary(my.lm1)
+
+my.lm2 <- lm(ageadjustedrate ~ year, weights = wgt , data = a)
+summary(my.lm2)
+
+# NO WEIGHT
+my.lm2 <- lm(ageadjustedrate ~ year, data = a)
+summary(my.lm2)
+
+# Extract te coefficients from the overall model
+my.coef <- coef(my.lm2)
+
+# add the regression line to the graph
+# setting the aesthetics to a constant - this provides a name that we can reference later when we add additional layers
+p <- p + geom_abline(intercept = my.coef[1], 
+                     slope = my.coef[2], 
+                     aes(colour = "overall"))
+p
+
+#for fun: Polynom, third degree: ?poly
+# how to use a polynom in a linear model
+my.lm3 <- lm(ageadjustedrate ~ poly(year, 3), data = a)
+
+p + geom_smooth(method = "lm",
+                formula = y ~ poly(x, degree = 3), 
+                se = FALSE, colour = "orange")
+
+# Now for the actual break point analysis
+# -------------------
+# analyse breakpoints
+# -------------------
+# http://cran.r-project.org/doc/Rnews/Rnews_2008-1.pdf
+library(segmented)
+
+# have to provide estimates for breakpoints.
+# automatic procedure to estimate breakpoints in the covariate x
+# Notice: bootstrap restart is not allowed!
+my.seg0<-segmented.lm(my.lm2,seg.Z=~year,psi=list(year=NA),
+                      control=seg.control(stop.if.error=FALSE,n.boot=0, it.max=20))
+# display the summary
+summary(my.seg0)
+
+# figuring out the breakpoint year was the purpose of this joinpoint analysis.
+( your_breakpoint <- round( as.vector( my.seg0$psi[, "Est." ] ) ) ) 
+# 2006 2012
+
+# so.  that's 3 joinpoints.  that's where the three line segments join.
+
+# obtain the annual percent change (APC=) estimates for each time point
+slope( my.seg0)
+slope( my.seg0 , APC = TRUE )
+
+
+#### nonfatal #####
+
+a <- nat[ which(nat$gp==12 & nat$fatal==0), ]
+head(a)
+str(a)
+
+summary(a$yhat1)
+summary(a$ageadjustedrate)
+
+# create a figure to get an idea of the data
+
+p <- ggplot(a, aes(x = year, y = ageadjustedrate)) + geom_line() +
+  geom_errorbar(aes(ymax = ageadjustedrateupper95conf, ymin = ageadjustedratelower95conf), width=.2) +
+  ggtitle("2001-2015") +
+  theme(plot.title = element_text(size=9, face="bold"))
+p <- p + labs(x = "Year",
+              y = "Age-adjusted rates")
+p
+
+# create that weight variable.
+a$wgt <- with( a, ( ageadjustedrate / ageadjustedratestandarderror ) ^ 2 )
+
+# create a linear model
+my.lm1 <- lm(yhat1 ~ year, weights = wgt , data = a)
+summary(my.lm1)
+
+my.lm2 <- lm(ageadjustedrate ~ year, weights = wgt , data = a)
+summary(my.lm2)
+
+# Extract te coefficients from the overall model
+my.coef <- coef(my.lm2)
+
+# add the regression line to the graph
+# setting the aesthetics to a constant - this provides a name that we can reference later when we add additional layers
+p <- p + geom_abline(intercept = my.coef[1], 
+                     slope = my.coef[2], 
+                     aes(colour = "overall"))
+p
+
+#for fun: Polynom, third degree: ?poly
+# how to use a polynom in a linear model
+my.lm3 <- lm(ageadjustedrate ~ poly(year, 3), data = a)
+
+p + geom_smooth(method = "lm",
+                formula = y ~ poly(x, degree = 3), 
+                se = FALSE, colour = "orange")
+
+# Now for the actual break point analysis
+# -------------------
+# analyse breakpoints
+# -------------------
+# http://cran.r-project.org/doc/Rnews/Rnews_2008-1.pdf
+library(segmented)
+
+# have to provide estimates for breakpoints.
+# automatic procedure to estimate breakpoints in the covariate x
+# Notice: bootstrap restart is not allowed!
+my.seg0<-segmented.lm(my.lm2,seg.Z=~year,psi=list(year=NA),
+                      control=seg.control(stop.if.error=FALSE,n.boot=0, it.max=20))
+# no breakpoint
+summary(my.seg0)
+summary(my.lm2)
+
+# APC from slope
+(exp(0.001738)-1)*100 # estimate
+(exp((0.001738-(1.96*0.008697)))-1)* 100 # lower
+(exp((0.001738+(1.96*0.008697)))-1)* 100 # upper
+
+
+############################################################################################################
+
+# 5n) unintentional: fatal, non-fatal
+
+# fatal
+a <- nat[ which(nat$gp==13 & nat$fatal==1), ]
+head(a)
+str(a)
+
+summary(a$yhat1)
+summary(a$ageadjustedrate)
+
+# create a figure to get an idea of the data
+
+p <- ggplot(a, aes(x = year, y = ageadjustedrate)) + geom_line() +
+  geom_errorbar(aes(ymax = ageadjustedrateupper95conf, ymin = ageadjustedratelower95conf), width=.2) +
+  ggtitle("2001-2015") +
+  theme(plot.title = element_text(size=9, face="bold"))
+p <- p + labs(x = "Year",
+              y = "Age-adjusted gun death rates per 100,000")
+p
+
+# create that weight variable.
+a$wgt <- with( a, ( ageadjustedrate / ageadjustedratestandarderror ) ^ 2 )
+
+# create a linear model
+my.lm1 <- lm(yhat1 ~ year, weights = wgt , data = a)
+summary(my.lm1)
+
+my.lm2 <- lm(ageadjustedrate ~ year, weights = wgt , data = a)
+summary(my.lm2)
+
+# NO WEIGHT
+my.lm2 <- lm(ageadjustedrate ~ year, data = a)
+summary(my.lm2)
+
+# Extract te coefficients from the overall model
+my.coef <- coef(my.lm2)
+
+# add the regression line to the graph
+# setting the aesthetics to a constant - this provides a name that we can reference later when we add additional layers
+p <- p + geom_abline(intercept = my.coef[1], 
+                     slope = my.coef[2], 
+                     aes(colour = "overall"))
+p
+
+#for fun: Polynom, third degree: ?poly
+# how to use a polynom in a linear model
+my.lm3 <- lm(ageadjustedrate ~ poly(year, 3), data = a)
+
+p + geom_smooth(method = "lm",
+                formula = y ~ poly(x, degree = 3), 
+                se = FALSE, colour = "orange")
+
+# Now for the actual break point analysis
+# -------------------
+# analyse breakpoints
+# -------------------
+# http://cran.r-project.org/doc/Rnews/Rnews_2008-1.pdf
+library(segmented)
+
+# have to provide estimates for breakpoints.
+# automatic procedure to estimate breakpoints in the covariate x
+# Notice: bootstrap restart is not allowed!
+my.seg0<-segmented.lm(my.lm2,seg.Z=~year,psi=list(year=NA),
+                      control=seg.control(stop.if.error=FALSE,n.boot=0, it.max=20))
+# display the summary- NO BREAKPOINT
+summary(my.seg0)
+
+# no breakpoint
+summary(my.seg0)
+summary(my.lm2)
+
+# APC from slope
+(exp(-0.007857)-1)*100 # estimate
+(exp((-0.007857-(1.96*0.002347)))-1)* 100 # lower
+(exp((-0.007857+(1.96*0.002347)))-1)* 100 # upper
+
+
+#### nonfatal ##### BOTH UNINTENTIONAL AND UNDETREMINED
+
+a <- nat[ which(nat$gp==13 & nat$fatal==0), ]
+head(a)
+str(a)
+
+summary(a$yhat1)
+summary(a$ageadjustedrate)
+
+# create a figure to get an idea of the data
+
+p <- ggplot(a, aes(x = year, y = ageadjustedrate)) + geom_line() +
+  geom_errorbar(aes(ymax = ageadjustedrateupper95conf, ymin = ageadjustedratelower95conf), width=.2) +
+  ggtitle("2001-2015") +
+  theme(plot.title = element_text(size=9, face="bold"))
+p <- p + labs(x = "Year",
+              y = "Age-adjusted rates")
+p
+
+# create that weight variable.
+a$wgt <- with( a, ( ageadjustedrate / ageadjustedratestandarderror ) ^ 2 )
+
+# create a linear model
+my.lm1 <- lm(yhat1 ~ year, weights = wgt , data = a)
+summary(my.lm1)
+
+my.lm2 <- lm(ageadjustedrate ~ year, weights = wgt , data = a)
+summary(my.lm2)
+
+# Extract te coefficients from the overall model
+my.coef <- coef(my.lm2)
+
+# add the regression line to the graph
+# setting the aesthetics to a constant - this provides a name that we can reference later when we add additional layers
+p <- p + geom_abline(intercept = my.coef[1], 
+                     slope = my.coef[2], 
+                     aes(colour = "overall"))
+p
+
+#for fun: Polynom, third degree: ?poly
+# how to use a polynom in a linear model
+my.lm3 <- lm(ageadjustedrate ~ poly(year, 3), data = a)
+
+p + geom_smooth(method = "lm",
+                formula = y ~ poly(x, degree = 3), 
+                se = FALSE, colour = "orange")
+
+# Now for the actual break point analysis
+# -------------------
+# analyse breakpoints
+# -------------------
+# http://cran.r-project.org/doc/Rnews/Rnews_2008-1.pdf
+library(segmented)
+
+# have to provide estimates for breakpoints.
+# automatic procedure to estimate breakpoints in the covariate x
+# Notice: bootstrap restart is not allowed!
+my.seg0<-segmented.lm(my.lm2,seg.Z=~year,psi=list(year=NA),
+                      control=seg.control(stop.if.error=FALSE,n.boot=0, it.max=20))
+# no breakpoint
+summary(my.seg0)
+summary(my.lm2)
+
+# APC from slope
+(exp(-0.07617)-1)*100 # estimate
+(exp((-0.07617-(1.96*0.02911)))-1)* 100 # lower
+(exp((-0.07617+(1.96*0.02911)))-1)* 100 # upper
+
+
+############################################################################################################
+
+# 5o) undetermined: fatal, non-fatal
+
+# fatal
+a <- nat[ which(nat$gp==14 & nat$fatal==1), ]
+head(a)
+str(a)
+
+summary(a$yhat1)
+summary(a$ageadjustedrate)
+
+# create a figure to get an idea of the data
+
+p <- ggplot(a, aes(x = year, y = ageadjustedrate)) + geom_line() +
+  geom_errorbar(aes(ymax = ageadjustedrateupper95conf, ymin = ageadjustedratelower95conf), width=.2) +
+  ggtitle("2001-2015") +
+  theme(plot.title = element_text(size=9, face="bold"))
+p <- p + labs(x = "Year",
+              y = "Age-adjusted gun death rates per 100,000")
+p
+
+# create that weight variable.
+a$wgt <- with( a, ( ageadjustedrate / ageadjustedratestandarderror ) ^ 2 )
+
+# create a linear model
+my.lm1 <- lm(yhat1 ~ year, weights = wgt , data = a)
+summary(my.lm1)
+
+my.lm2 <- lm(ageadjustedrate ~ year, weights = wgt , data = a)
+summary(my.lm2)
+
+# NO WEIGHT
+my.lm2 <- lm(ageadjustedrate ~ year, data = a)
+summary(my.lm2)
+
+# Extract te coefficients from the overall model
+my.coef <- coef(my.lm2)
+
+# add the regression line to the graph
+# setting the aesthetics to a constant - this provides a name that we can reference later when we add additional layers
+p <- p + geom_abline(intercept = my.coef[1], 
+                     slope = my.coef[2], 
+                     aes(colour = "overall"))
+p
+
+#for fun: Polynom, third degree: ?poly
+# how to use a polynom in a linear model
+my.lm3 <- lm(ageadjustedrate ~ poly(year, 3), data = a)
+
+p + geom_smooth(method = "lm",
+                formula = y ~ poly(x, degree = 3), 
+                se = FALSE, colour = "orange")
+
+# Now for the actual break point analysis
+# -------------------
+# analyse breakpoints
+# -------------------
+# http://cran.r-project.org/doc/Rnews/Rnews_2008-1.pdf
+library(segmented)
+
+# have to provide estimates for breakpoints.
+# automatic procedure to estimate breakpoints in the covariate x
+# Notice: bootstrap restart is not allowed!
+my.seg0<-segmented.lm(my.lm2,seg.Z=~year,psi=list(year=NA),
+                      control=seg.control(stop.if.error=FALSE,n.boot=0, it.max=20))
+# display the summary- NO BREAKPOINT
+summary(my.seg0)
+
+
+
+#### nonfatal ##### BOTH UNINTENTIONAL AND UNDETREMINED
+
+a <- nat[ which(nat$gp==14 & nat$fatal==0), ]
+head(a)
+str(a)
+
+summary(a$yhat1)
+summary(a$ageadjustedrate)
+
+# create a figure to get an idea of the data
+
+p <- ggplot(a, aes(x = year, y = ageadjustedrate)) + geom_line() +
+  geom_errorbar(aes(ymax = ageadjustedrateupper95conf, ymin = ageadjustedratelower95conf), width=.2) +
+  ggtitle("2001-2015") +
+  theme(plot.title = element_text(size=9, face="bold"))
+p <- p + labs(x = "Year",
+              y = "Age-adjusted rates")
+p
+
+# create that weight variable.
+a$wgt <- with( a, ( ageadjustedrate / ageadjustedratestandarderror ) ^ 2 )
+
+# create a linear model
+my.lm1 <- lm(yhat1 ~ year, weights = wgt , data = a)
+summary(my.lm1)
+
+my.lm2 <- lm(ageadjustedrate ~ year, weights = wgt , data = a)
+summary(my.lm2)
+
+# Extract te coefficients from the overall model
+my.coef <- coef(my.lm2)
+
+# add the regression line to the graph
+# setting the aesthetics to a constant - this provides a name that we can reference later when we add additional layers
+p <- p + geom_abline(intercept = my.coef[1], 
+                     slope = my.coef[2], 
+                     aes(colour = "overall"))
+p
+
+#for fun: Polynom, third degree: ?poly
+# how to use a polynom in a linear model
+my.lm3 <- lm(ageadjustedrate ~ poly(year, 3), data = a)
+
+p + geom_smooth(method = "lm",
+                formula = y ~ poly(x, degree = 3), 
+                se = FALSE, colour = "orange")
+
+# Now for the actual break point analysis
+# -------------------
+# analyse breakpoints
+# -------------------
+# http://cran.r-project.org/doc/Rnews/Rnews_2008-1.pdf
+library(segmented)
+
+# have to provide estimates for breakpoints.
+# automatic procedure to estimate breakpoints in the covariate x
+# Notice: bootstrap restart is not allowed!
+my.seg0<-segmented.lm(my.lm2,seg.Z=~year,psi=list(year=NA),
+                      control=seg.control(stop.if.error=FALSE,n.boot=0, it.max=20))
+# no breakpoint
+summary(my.lm2)
+
+
+############################################################################################################
+
+# 5p) legal: fatal, non-fatal
+
+# fatal
+a <- nat[ which(nat$gp==15 & nat$fatal==1), ]
+head(a)
+str(a)
+
+summary(a$yhat1)
+summary(a$ageadjustedrate)
+
+# create a figure to get an idea of the data
+
+p <- ggplot(a, aes(x = year, y = ageadjustedrate)) + geom_line() +
+  geom_errorbar(aes(ymax = ageadjustedrateupper95conf, ymin = ageadjustedratelower95conf), width=.2) +
+  ggtitle("2001-2015") +
+  theme(plot.title = element_text(size=9, face="bold"))
+p <- p + labs(x = "Year",
+              y = "Age-adjusted gun death rates per 100,000")
+p
+
+# create that weight variable.
+a$wgt <- with( a, ( ageadjustedrate / ageadjustedratestandarderror ) ^ 2 )
+
+# create a linear model
+my.lm1 <- lm(yhat1 ~ year, weights = wgt , data = a)
+summary(my.lm1)
+
+my.lm2 <- lm(ageadjustedrate ~ year, weights = wgt , data = a)
+summary(my.lm2)
+
+# NO WEIGHT
+my.lm2 <- lm(ageadjustedrate ~ year, data = a)
+summary(my.lm2)
+
+# Extract te coefficients from the overall model
+my.coef <- coef(my.lm2)
+
+# add the regression line to the graph
+# setting the aesthetics to a constant - this provides a name that we can reference later when we add additional layers
+p <- p + geom_abline(intercept = my.coef[1], 
+                     slope = my.coef[2], 
+                     aes(colour = "overall"))
+p
+
+#for fun: Polynom, third degree: ?poly
+# how to use a polynom in a linear model
+my.lm3 <- lm(ageadjustedrate ~ poly(year, 3), data = a)
+
+p + geom_smooth(method = "lm",
+                formula = y ~ poly(x, degree = 3), 
+                se = FALSE, colour = "orange")
+
+# Now for the actual break point analysis
+# -------------------
+# analyse breakpoints
+# -------------------
+# http://cran.r-project.org/doc/Rnews/Rnews_2008-1.pdf
+library(segmented)
+
+# have to provide estimates for breakpoints.
+# automatic procedure to estimate breakpoints in the covariate x
+# Notice: bootstrap restart is not allowed!
+my.seg0<-segmented.lm(my.lm2,seg.Z=~year,psi=list(year=NA),
+                      control=seg.control(stop.if.error=FALSE,n.boot=0, it.max=20))
+# display the summary- NO BREAKPOINT
+summary(my.seg0)
+
+# figuring out the breakpoint year was the purpose of this joinpoint analysis.
+( your_breakpoint <- round( as.vector( my.seg0$psi[, "Est." ] ) ) ) 
+# 2008
+
+# so.  that's 1 joinpoints.  that's where the 2 line segments join.
+
+# obtain the annual percent change (APC=) estimates for each time point
+slope( my.seg0)
+slope( my.seg0 , APC = TRUE )
+
+
+#### nonfatal ##### BOTH UNINTENTIONAL AND UNDETREMINED
+
+a <- nat[ which(nat$gp==15 & nat$fatal==0), ]
+head(a)
+str(a)
+
+summary(a$yhat1)
+summary(a$ageadjustedrate)
+
+# create a figure to get an idea of the data
+
+p <- ggplot(a, aes(x = year, y = ageadjustedrate)) + geom_line() +
+  geom_errorbar(aes(ymax = ageadjustedrateupper95conf, ymin = ageadjustedratelower95conf), width=.2) +
+  ggtitle("2001-2015") +
+  theme(plot.title = element_text(size=9, face="bold"))
+p <- p + labs(x = "Year",
+              y = "Age-adjusted rates")
+p
+
+# create that weight variable.
+a$wgt <- with( a, ( ageadjustedrate / ageadjustedratestandarderror ) ^ 2 )
+
+# create a linear model
+my.lm1 <- lm(yhat1 ~ year, weights = wgt , data = a)
+summary(my.lm1)
+
+my.lm2 <- lm(ageadjustedrate ~ year, weights = wgt , data = a)
+summary(my.lm2)
+
+# Extract te coefficients from the overall model
+my.coef <- coef(my.lm2)
+
+# add the regression line to the graph
+# setting the aesthetics to a constant - this provides a name that we can reference later when we add additional layers
+p <- p + geom_abline(intercept = my.coef[1], 
+                     slope = my.coef[2], 
+                     aes(colour = "overall"))
+p
+
+#for fun: Polynom, third degree: ?poly
+# how to use a polynom in a linear model
+my.lm3 <- lm(ageadjustedrate ~ poly(year, 3), data = a)
+
+p + geom_smooth(method = "lm",
+                formula = y ~ poly(x, degree = 3), 
+                se = FALSE, colour = "orange")
+
+p + geom_smooth(method = "lm",
+                formula = y ~ poly(x, degree = 4), 
+                se = FALSE, colour = "red")
+
+# Now for the actual break point analysis
+# -------------------
+# analyse breakpoints
+# -------------------
+# http://cran.r-project.org/doc/Rnews/Rnews_2008-1.pdf
+library(segmented)
+
+# have to provide estimates for breakpoints.
+# automatic procedure to estimate breakpoints in the covariate x
+# Notice: bootstrap restart is not allowed!
+my.seg0<-segmented.lm(my.lm2,seg.Z=~year,psi=list(year=NA),
+                      control=seg.control(stop.if.error=FALSE,n.boot=0, it.max=20))
+
+# display the summary- 
+summary(my.seg0)
+
+# figuring out the breakpoint year was the purpose of this joinpoint analysis.
+( your_breakpoint <- round( as.vector( my.seg0$psi[, "Est." ] ) ) ) 
+# 2008 2010
+
+# so.  that's 2 joinpoints.  that's where the 3 line segments join.
+
+# obtain the annual percent change (APC=) estimates for each time point
+slope( my.seg0)
+slope( my.seg0 , APC = TRUE )
+
+############################################################################################################
+############################################################################################################
+
