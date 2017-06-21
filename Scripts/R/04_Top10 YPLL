@@ -1,0 +1,25 @@
+#######################################
+# top 10 YPLL
+mydata<-read.csv("E:/Google Drive/Gun Violence Research/189_1_2001-2015/08_Database/Processed/top10_ypll.csv",header=T)
+head(mydata)
+
+library(ggplot2)
+library(scales)
+
+mydata$color<-c("c1","c2",rep("c3",3),"red",rep("c3",5),"c2")
+mydata$YPLL<-c("17,175,330","33,080,545","27,694,827","20,728,908","12,918,225","11,551,418","11,060,024",
+               "8,429,091","6,904,548","3,849,534","3,528,893","40,189,108")
+
+ggplot(data=mydata, aes(x=Cause.of.Death,y=Age.adjusted.Percent,fill=color,label=YPLL)) +
+  geom_bar(position="dodge",stat="identity") +
+  coord_flip() + ggtitle("YPLL before age 65 from top 10 causes of death from 2001 to 2015") +
+  scale_x_discrete(
+    limits=c("All Others", "Cerebrovascular", "Liver Disease", "Congenital Anomalies",
+             "Homicide", "Suicide", "Firearm", "Perinatal Period", "Heart Disease",
+             "Malignant Neoplasms", "Unintentional Injury","All Causes")
+  ) + labs(x="Cause of death",y="Age adjusted percent") + guides(fill=FALSE) + 
+  geom_text(position=position_stack()) +
+  scale_fill_manual(values=c("deepskyblue3","deepskyblue2","deepskyblue1","red")) +
+  theme(axis.text.y = element_text(colour = c(rep('black',6),"red",rep('black',5))))
+                                   
+                  
