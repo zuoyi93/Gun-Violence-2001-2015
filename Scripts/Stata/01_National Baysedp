@@ -1,0 +1,601 @@
+     
+******************************************************************
+
+* DATA PREP - june 01 2017
+
+* PROGRAMS BY: KALESAN/MV
+
+* fatal and nonfatal
+
+* from cdc wonder 2001-2015
+
+******************************************************************
+
+	* STEP 1: bayes shrinkage immediate - NATIONAL 2001-2015
+	
+	* Overall fatal, national
+	clear
+	import excel "/Users/kalesan/Google Drive/Gun Violence Research/189_1_2001-2015/08_Database/Original/national/f_all_20012015.xlsx", sheet("data") firstrow case(lower)
+	count
+	
+	tab year, m
+	sum year	
+	
+	* Random Intercepts
+	meglm ageadjustedrate year || year: ,  family(gaussian)
+	predict yhat1, fitted // y-hat for model 1
+	predict ra1, reffects // residual intercept for model 1	
+	predict re_means*, reses(se_means*) reffects
+    * Obtain predictions of the posterior modes and their standard errors
+    predict re_modes*, reses(se_modes*) reffects ebmodes
+	
+	gen aevents=(ageadjustedrate*population)/100000
+	gen aeventsy1=(yhat1*population)/100000
+	
+	replace aevents=round(aevents,1)
+	replace aeventsy1=round(aeventsy1,1)
+	
+	keep year deaths population ageadjustedrate ageadjustedratestandarderror ageadjustedratelower95conf ageadjustedrateupper95conf yhat1 ra1 aevents aeventsy1 
+	gen fatal=1
+	rename deaths numevents
+	gen gp=0
+	
+	save "$dd/fatalnat0.dta", replace
+	
+	
+	* Overall nonfatal, national
+	clear
+	import excel "/Users/kalesan/Google Drive/Gun Violence Research/189_1_2001-2015/08_Database/Original/national/n_all_20012015.xlsx", firstrow case(lower)
+	count
+	
+	tab year, m
+	sum year	
+	
+	gen ageadjustedratestandarderror=ageadjustedrate*cv
+	gen ageadjustedratelower95conf=ageadjustedrate-(1.96*ageadjustedratestandarderror)
+	gen ageadjustedrateupper95conf=ageadjustedrate+(1.96*ageadjustedratestandarderror)
+	
+	* Random Intercepts
+	xtmixed ageadjustedrate year || year: , mle
+	predict yhat1, fitted // y-hat for model 1
+	predict ra1, reffects // residual intercept for model 1
+	gen check1 = (_b[_cons] + ra1) + _b[year]*year 
+	list ageadjustedrate yhat1 check1 in 1/5
+	
+	gen aevents=(ageadjustedrate*population)/100000
+	gen aeventsy1=(yhat1*population)/100000
+	
+	replace aevents=round(aevents,1)
+	replace aeventsy1=round(aeventsy1,1)
+	
+	keep year injuries population ageadjustedrate ageadjustedratestandarderror ageadjustedratelower95conf ageadjustedrateupper95conf yhat1 ra1 aevents aeventsy1 
+	gen fatal=0
+	rename injuries numevents
+	gen gp=0
+	
+	save "$dd/nfatalnat0.dta", replace
+	
+	****************************************************************************
+	
+	* sex fatal, national
+	clear
+	import excel "/Users/kalesan/Google Drive/Gun Violence Research/189_1_2001-2015/08_Database/Original/national/f_sex_20012015.xlsx", firstrow case(lower)
+	count
+	drop if year==.
+	count 
+	drop if gender=="" 
+	gen female=1 if gender=="Female"
+	replace female=0 if female==.
+	tab female, m
+	
+	tab year, m
+	sum year	
+	destring ageadjustedrate ageadjustedratestandarderror, force replace
+	
+	* Random Intercepts
+	xtmixed ageadjustedrate year female || year: , mle
+	predict yhat1, fitted // y-hat for model 1
+	predict ra1, reffects // residual intercept for model 1
+	
+	gen aevents=(ageadjustedrate*population)/100000
+	gen aeventsy1=(yhat1*population)/100000
+	
+	replace aevents=round(aevents,1)
+	replace aeventsy1=round(aeventsy1,1)
+	
+	keep female year deaths population ageadjustedrate ageadjustedratestandarderror yhat1 ra1 aevents aeventsy1 
+	gen fatal=1
+	rename deaths numevents
+	gen gp=1 if female==1
+	replace gp=2 if female==0
+	
+	save "$dd/fatalnat1.dta", replace
+	
+	
+	* sex nonfatal, national
+	clear
+	import excel "/Users/kalesan/Google Drive/Gun Violence Research/189_1_2001-2015/08_Database/Original/national/n_sex_20012015.xlsx", firstrow case(lower)
+	count
+	drop if year==.
+	count 
+	drop if sex=="B" | sex=="U"
+	gen female=1 if sex=="F"
+	replace female=0 if female==.
+	tab female, m
+	
+	tab year, m
+	
+	gen ageadjustedratestandarderror=ageadjustedrate*cv
+	gen ageadjustedratelower95conf=ageadjustedrate-(1.96*ageadjustedratestandarderror)
+	gen ageadjustedrateupper95conf=ageadjustedrate+(1.96*ageadjustedratestandarderror)
+	
+	* Random Intercepts
+	xtmixed ageadjustedrate year female || year: , mle
+	predict yhat1, fitted // y-hat for model 1
+	predict ra1, reffects // residual intercept for model 1
+	
+	destring injuries population, force replace
+	gen aevents=(ageadjustedrate*population)/100000
+	gen aeventsy1=(yhat1*population)/100000
+	
+	replace aevents=round(aevents,1)
+	replace aeventsy1=round(aeventsy1,1)
+	
+	keep female year injuries population ageadjustedrate ageadjustedratestandarderror ageadjustedratelower95conf ageadjustedrateupper95conf yhat1 ra1 aevents aeventsy1 
+	gen fatal=0
+	rename injuries numevents
+	gen gp=1 if female==1
+	replace gp=2 if female==0
+	
+	save "$dd/nfatalnat1.dta", replace
+	
+	****************************************************************************
+	
+	* age groups fatal, national
+	clear
+	import excel "/Users/kalesan/Google Drive/Gun Violence Research/189_1_2001-2015/08_Database/Original/national/f_age0-15_20012015.xlsx", firstrow case(lower)
+	count
+	drop if year==.
+	count 
+	gen agegp=1
+	save "$dd/a1.dta", replace
+	
+	* age16-45 fatal, national
+	clear
+	import excel "/Users/kalesan/Google Drive/Gun Violence Research/189_1_2001-2015/08_Database/Original/national/f_age16-45_20012015.xlsx", firstrow case(lower)
+	count
+	drop if year==.
+	count 
+	gen agegp=2
+	save "$dd/a2.dta", replace
+	
+	* age46-60 fatal, national
+	clear
+	import excel "/Users/kalesan/Google Drive/Gun Violence Research/189_1_2001-2015/08_Database/Original/national/f_age46-60_20012015.xlsx", firstrow case(lower)
+	count
+	drop if year==.
+	count 
+	gen agegp=3
+	save "$dd/a3.dta", replace
+	
+	* age46-60 fatal, national
+	clear
+	import excel "/Users/kalesan/Google Drive/Gun Violence Research/189_1_2001-2015/08_Database/Original/national/f_age61_20012015.xlsx", firstrow case(lower)
+	count
+	drop if year==.
+	count 
+	gen agegp=4
+	save "$dd/a4.dta", replace
+	
+	* append
+	clear
+	use "$dd/a1.dta", clear
+	append using "$dd/a2.dta"
+	append using "$dd/a3.dta"
+	append using "$dd/a4.dta"
+	
+	tab year, m
+	destring cruderate cruderatelower95confidence cruderateupper95confidence cruderatestandarderror, force replace
+	
+	* Random Intercepts
+	xtmixed cruderate year i.agegp || year: , mle
+	predict yhat1, fitted // y-hat for model 1
+	predict ra1, reffects // residual intercept for model 1
+	
+	gen aevents=(cruderate*population)/100000
+	gen aeventsy1=(yhat1*population)/100000
+	
+	replace aevents=round(aevents,1)
+	replace aeventsy1=round(aeventsy1,1)
+	
+	keep agegp year deaths population cruderate cruderatelower95confidence cruderateupper95confidence cruderatestandarderror yhat1 ra1 aevents aeventsy1 
+	gen fatal=1
+	rename deaths numevents
+	gen gp=3 if agegp==1
+	replace gp=4 if agegp==2
+	replace gp=5 if agegp==3
+	replace gp=6 if agegp==4
+	
+	save "$dd/fatalnat2.dta", replace
+	
+	
+	* age groups nonfatal, national
+	clear
+	import excel "/Users/kalesan/Google Drive/Gun Violence Research/189_1_2001-2015/08_Database/Original/national/n_age0-15_20012015.xlsx", firstrow case(lower)
+	count
+	drop if year==.
+	count 
+	gen agegp=1
+	save "$dd/a1.dta", replace
+	
+	* age16-45 nonfatal, national
+	clear
+	import excel "/Users/kalesan/Google Drive/Gun Violence Research/189_1_2001-2015/08_Database/Original/national/n_age16-45_20012015.xlsx", firstrow case(lower)
+	count
+	drop if year==.
+	count 
+	gen agegp=2
+	save "$dd/a2.dta", replace
+	
+	* age46-60 nonfatal, national
+	clear
+	import excel "/Users/kalesan/Google Drive/Gun Violence Research/189_1_2001-2015/08_Database/Original/national/n_age46-60_20012015.xlsx", firstrow case(lower)
+	count
+	drop if year==.
+	count 
+	gen agegp=3
+	save "$dd/a3.dta", replace
+	
+	* age46-60 nonfatal, national
+	clear
+	import excel "/Users/kalesan/Google Drive/Gun Violence Research/189_1_2001-2015/08_Database/Original/national/n_age61_20012015.xlsx", firstrow case(lower)
+	count
+	drop if year==.
+	count 
+	gen agegp=4
+	save "$dd/a4.dta", replace
+	
+	* append
+	clear
+	use "$dd/a1.dta", clear
+	append using "$dd/a2.dta"
+	append using "$dd/a3.dta"
+	append using "$dd/a4.dta"
+		
+	tab year, m
+	
+	gen cruderatestandarderror=cruderate*cv
+	gen cruderatelower95conf=cruderate-(1.96*cruderatestandarderror)
+	gen cruderateupper95conf=cruderate+(1.96*cruderatestandarderror)
+	
+	* Random Intercepts
+	xtmixed cruderate year i.agegp || year: , mle
+	predict yhat1, fitted // y-hat for model 1
+	predict ra1, reffects // residual intercept for model 1
+	
+	destring injuries population, force replace
+	gen aevents=(cruderate*population)/100000
+	gen aeventsy1=(yhat1*population)/100000
+	
+	replace aevents=round(aevents,1)
+	replace aeventsy1=round(aeventsy1,1)
+	
+	keep agegp year injuries population cruderate cruderatestandarderror cruderatelower95conf cruderateupper95conf yhat1 ra1 aevents aeventsy1 
+	gen fatal=0
+	rename injuries numevents
+	gen gp=3 if agegp==1
+	replace gp=4 if agegp==2
+	replace gp=5 if agegp==3
+	replace gp=6 if agegp==4
+	
+	save "$dd/nfatalnat2.dta", replace
+	
+	****************************************************************************
+	
+	
+	* fatal race/ethnicity- nhw, black(h+nh), hisp(nblack), other race(nh)
+	
+	* nhw
+	clear
+	import excel "/Users/kalesan/Google Drive/Gun Violence Research/189_1_2001-2015/08_Database/Original/national/f_nhw_20012015.xlsx", firstrow case(lower)
+	count
+	drop if year==.
+	count 
+	gen raceth=1
+	keep year deaths population cruderate ageadjustedrate raceth
+	destring cruderate ageadjustedrate, force replace
+	save "$dd/a1.dta", replace
+	
+	* black- f_race_20012015
+	clear
+	import excel "/Users/kalesan/Google Drive/Gun Violence Research/189_1_2001-2015/08_Database/Original/national/f_race_20012015.xlsx", firstrow case(lower)
+	count
+	keep if race=="Black"
+	count 
+	drop race
+	gen raceth=2
+	keep year deaths population cruderate ageadjustedrate raceth
+	destring cruderate ageadjustedrate, force replace
+	save "$dd/a2.dta", replace
+	
+	* Hispanic- (nblack)
+	clear
+	import excel "/Users/kalesan/Google Drive/Gun Violence Research/189_1_2001-2015/08_Database/Original/national/f_nhblack_20012015.xlsx", firstrow case(lower)
+	count
+	drop if year==.
+	count
+	gen raceth=3
+	keep year deaths population cruderate ageadjustedrate raceth
+	destring cruderate ageadjustedrate, force replace
+	save "$dd/a3.dta", replace
+	
+	* other race(nh)
+	clear
+	import excel "/Users/kalesan/Google Drive/Gun Violence Research/189_1_2001-2015/08_Database/Original/national/f_nhoth_20012015.xlsx", firstrow case(lower)
+	count
+	drop if year==.
+	count
+	gen raceth=4
+	keep year deaths population cruderate ageadjustedrate raceth
+	destring cruderate ageadjustedrate, force replace
+	save "$dd/a4.dta", replace
+	
+	* append
+	clear
+	use "$dd/a1.dta", clear
+	append using "$dd/a2.dta"
+	append using "$dd/a3.dta"
+	append using "$dd/a4.dta"
+	
+	tab year, m
+	
+	* Random Intercepts
+	xtmixed ageadjustedrate year i.raceth || year: , mle
+	predict yhat1, fitted // y-hat for model 1
+	predict ra1, reffects // residual intercept for model 1
+	
+	gen aevents=(ageadjustedrate*population)/100000
+	gen aeventsy1=(yhat1*population)/100000
+	
+	replace aevents=round(aevents,1)
+	replace aeventsy1=round(aeventsy1,1)
+	
+	keep raceth year deaths population ageadjustedrate yhat1 ra1 aevents aeventsy1 
+	gen fatal=1
+	rename deaths numevents
+	gen gp=7 if raceth==1
+	replace gp=8 if raceth==2
+	replace gp=9 if raceth==3
+	replace gp=10 if raceth==4
+	
+	save "$dd/fatalnat3.dta", replace
+	
+	
+	* nonfatal race/ethnicity- nhw, black(h+nh), hisp(nblack), other race(nh)
+	clear
+	import excel "/Users/kalesan/Google Drive/Gun Violence Research/189_1_2001-2015/08_Database/Original/national/n_race_20012015.xlsx", firstrow case(lower)
+	count
+	drop if year==.
+	count 
+	tab raceethnicity, m
+	drop if raceethnicity=="A" | raceethnicity=="N"
+	gen raceth=1 if raceethnicity=="W"
+	replace raceth=2 if raceethnicity=="B"
+	replace raceth=3 if raceethnicity=="H"
+	replace raceth=4 if raceethnicity=="O"
+	tab raceth, m
+	
+	tab year, m
+	
+	destring injuries population, force replace
+	gen cruderate=(injuries*100000)/population
+	gen cruderatestandarderror=cruderate*cv
+	gen cruderatelower95conf=cruderate-(1.96*cruderatestandarderror)
+	gen cruderateupper95conf=cruderate+(1.96*cruderatestandarderror)
+	
+	* Random Intercepts
+	xtmixed cruderates year i.raceth || year: , mle
+	predict yhat1, fitted // y-hat for model 1
+	predict ra1, reffects // residual intercept for model 1
+	
+	destring injuries population, force replace
+	gen aevents=(cruderate*population)/100000
+	gen aeventsy1=(yhat1*population)/100000
+	
+	replace aevents=round(aevents,1)
+	replace aeventsy1=round(aeventsy1,1)
+	
+	keep raceth year injuries population cruderate cruderatestandarderror cruderatelower95conf cruderateupper95conf yhat1 ra1 aevents aeventsy1 
+	gen fatal=0
+	rename injuries numevents
+	gen gp=7 if raceth==1
+	replace gp=8 if raceth==2
+	replace gp=9 if raceth==3
+	replace gp=10 if raceth==4
+	
+	save "$dd/nfatalnat3.dta", replace
+	
+	****************************************************************************
+	
+	* fatal- intent: 1=homicide, 2=suicide, 3=unintentional, 4=undetermined, 5=legal
+	clear
+	import excel "/Users/kalesan/Google Drive/Gun Violence Research/189_1_2001-2015/08_Database/Original/national/fhomicide_all_20012015.xlsx", firstrow case(lower)
+	count
+	drop if year==.
+	count 
+	gen intent=1 // homicide
+	save "$dd/a1.dta", replace
+	
+	clear
+	import excel "/Users/kalesan/Google Drive/Gun Violence Research/189_1_2001-2015/08_Database/Original/national/fsuicide_all_20012015.xlsx", firstrow case(lower)
+	count
+	drop if year==.
+	count 
+	gen intent=2 // suicide
+	save "$dd/a2.dta", replace
+	
+	clear
+	import excel "/Users/kalesan/Google Drive/Gun Violence Research/189_1_2001-2015/08_Database/Original/national/funintentional_all_20012015.xlsx", firstrow case(lower)
+	count
+	drop if year==.
+	count 
+	gen intent=3 // unintentional
+	destring cruderate ageadjustedrate, force replace
+	save "$dd/a3.dta", replace
+	
+	clear
+	import excel "/Users/kalesan/Google Drive/Gun Violence Research/189_1_2001-2015/08_Database/Original/national/fundetermined_all_20012015.xlsx", firstrow case(lower)
+	count
+	drop if year==.
+	count 
+	gen intent=4 // undetermined
+	save "$dd/a4.dta", replace
+	
+	clear
+	import excel "/Users/kalesan/Google Drive/Gun Violence Research/189_1_2001-2015/08_Database/Original/national/flegal_all_20012015.xlsx", firstrow case(lower)
+	count
+	drop if year==.
+	count 
+	gen intent=5 // legal
+	save "$dd/a5.dta", replace
+	
+	
+	clear
+	use "$dd/a1.dta", clear
+	append using "$dd/a2.dta"
+	append using "$dd/a3.dta"
+	append using "$dd/a4.dta"
+	append using "$dd/a5.dta"
+	
+	tab year, m
+	
+	* Random Intercepts
+	xtmixed ageadjustedrate year i.intent || year: , mle
+	predict yhat1, fitted // y-hat for model 1
+	predict ra1, reffects // residual intercept for model 1
+	
+	gen aevents=(ageadjustedrate*population)/100000
+	gen aeventsy1=(yhat1*population)/100000
+	
+	
+	replace aevents=round(aevents,1)
+	replace aeventsy1=round(aeventsy1,1)
+	
+	keep intent year deaths population ageadjustedrate ageadjustedratelower95conf ageadjustedrateupper95conf ageadjustedratestandarderror yhat1 ra1 aevents aeventsy1 
+	gen fatal=1
+	rename deaths numevents
+	gen gp=11 if intent==1
+	replace gp=12 if intent==2
+	replace gp=13 if intent==3
+	replace gp=14 if intent==4
+	replace gp=15 if intent==5
+	
+	save "$dd/fatalnat4.dta", replace
+	
+	
+	* nonfatal- intent: 1=homicide, 2=suicide, 3=unintentional, 4=undetermined, 5=legal
+	clear
+	import excel "/Users/kalesan/Google Drive/Gun Violence Research/189_1_2001-2015/08_Database/Original/national/nhomicide_all_20012015.xlsx", firstrow case(lower)
+	count
+	drop if year==.
+	count 
+	gen intent=1 // homicide
+	keep year injuries population cruderate ageadjustedrate intent cv
+	destring cruderate ageadjustedrate, force replace
+	save "$dd/a1.dta", replace
+	
+	clear
+	import excel "/Users/kalesan/Google Drive/Gun Violence Research/189_1_2001-2015/08_Database/Original/national/nsuicide_all_20012015.xlsx", firstrow case(lower)
+	count
+	drop if year==.
+	count 
+	gen intent=2 // suicide
+	keep year injuries population cruderate ageadjustedrate intent cv
+	destring cruderate ageadjustedrate, force replace
+	save "$dd/a2.dta", replace
+	
+	clear
+	import excel "/Users/kalesan/Google Drive/Gun Violence Research/189_1_2001-2015/08_Database/Original/national/nunintentional_all_20012015.xlsx", firstrow case(lower)
+	count
+	drop if year==.
+	count 
+	gen intent=3 // unintentional
+	keep year injuries population cruderate ageadjustedrate intent cv
+	destring cruderate ageadjustedrate, force replace
+	save "$dd/a3.dta", replace
+	
+	clear
+	import excel "/Users/kalesan/Google Drive/Gun Violence Research/189_1_2001-2015/08_Database/Original/national/nlegal_all_20012015.xlsx", firstrow case(lower)
+	count
+	drop if year==.
+	count 
+	gen intent=5 // legal
+	keep year injuries population cruderate ageadjustedrate intent cv
+	destring cruderate ageadjustedrate, force replace
+	save "$dd/a5.dta", replace
+	
+	
+	clear
+	use "$dd/a1.dta", clear
+	append using "$dd/a2.dta"
+	append using "$dd/a3.dta"
+	append using "$dd/a5.dta"
+	
+	tab year, m
+	
+	* Random Intercepts
+	xtmixed ageadjustedrate year i.intent || year: , mle
+	predict yhat1, fitted // y-hat for model 1
+	predict ra1, reffects // residual intercept for model 1
+	
+	gen aevents=(ageadjustedrate*population)/100000
+	gen aeventsy1=(yhat1*population)/100000
+	
+	replace aevents=round(aevents,1)
+	replace aeventsy1=round(aeventsy1,1)
+	
+	gen ageadjustedratestandarderror=ageadjustedrate*cv
+	gen ageadjustedratelower95conf=ageadjustedrate-(1.96*ageadjustedratestandarderror)
+	gen ageadjustedrateupper95conf=ageadjustedrate+(1.96*ageadjustedratestandarderror)
+	
+	keep intent year injuries population ageadjustedrate ageadjustedratestandarderror ageadjustedratelower95conf ageadjustedrateupper95conf yhat1 ra1 aevents aeventsy1 
+	gen fatal=0
+	rename injuries numevents
+	gen gp=11 if intent==1
+	replace gp=12 if intent==2
+	replace gp=13 if intent==3
+	replace gp=15 if intent==5
+	
+	save "$dd/nfatalnat4.dta", replace
+	
+	****************************************************************************
+	
+	
+	* append all
+	* fatal and non-fatal
+	
+	clear
+	use "$dd/fatalnat0.dta", clear
+	append using "$dd/fatalnat1.dta"
+	append using "$dd/fatalnat2.dta"
+	append using "$dd/fatalnat3.dta"
+	append using "$dd/fatalnat4.dta"
+	append using "$dd/nfatalnat0.dta"
+	append using "$dd/nfatalnat1.dta"
+	append using "$dd/nfatalnat2.dta"
+	append using "$dd/nfatalnat3.dta"
+	append using "$dd/nfatalnat4.dta"
+	
+	save "$dd/ngunstor.dta", replace
+	
+	
+	**************************************************************************
+
+	
+	
+	
+	
+	
+	
+	
+	
