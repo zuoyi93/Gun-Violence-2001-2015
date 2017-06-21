@@ -1,0 +1,17 @@
+
+
+
+* states analysis
+
+	clear
+	use "$dd/states.dta", clear
+	
+	tab state, m
+	
+	sum ageadjustedrate // 2.1 30.3
+	centile ageadjustedrate, centile (20 40 60 80)
+	centile ageadjustedrate, centile (10 20 30 40 50 60 70 80 90)
+	
+	* alabama
+	* fatal 
+	bysort state: list year deaths ageadjustedrate if year==2001 | year==2015
