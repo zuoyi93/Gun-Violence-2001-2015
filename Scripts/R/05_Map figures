@@ -1,0 +1,200 @@
+
+
+# state Figure
+
+# 1) read data
+# state
+install.packages("haven")
+library(haven)
+y <- read_dta("~/Google Drive/Gun Violence Research/189_1_2001-2015/09_Analysis/03_stata/data/statesr.dta")
+head(y)
+str(y)
+
+# create factor year
+y$yr <- as.factor(y$year)
+factor(y$yr)
+
+library(choroplethr)
+data(df_pop_state)
+head(df_pop_state)
+state_choropleth(df_pop_state)
+
+data(y)
+head(y)
+
+# new variable region=fips
+y$region <- y$state
+y$value <- y$ageadjustedrate
+head(y)
+
+# select variables v1, v2, v3
+myvars <- c("region", "value")
+
+par(mfrow=c(2,2), mar=c(0.2,0.2,0.2,0.2))
+    
+# 2001
+a<-y[which(y$year=="2001"),]
+a <- a[myvars]
+state_choropleth(a)
+library(Hmisc) # for cut2
+# Figure 1
+a$value = cut2(a$value, cuts=c(2.0, 7.7, 10.2, 12.1, 14.9, 30.4))
+state_choropleth(a, title="2001", legend="Mortality rate per 100,000")
+
+# 2002
+a<-y[which(y$year=="2002"),]
+a <- a[myvars]
+state_choropleth(a)
+library(Hmisc) # for cut2
+# Figure 1
+a$value = cut2(a$value, cuts=c(2.0, 7.7, 10.2, 12.1, 14.9, 30.4))
+state_choropleth(a, title="2002", legend="Mortality rate per 100,000")
+
+# 2003
+a<-y[which(y$year=="2003"),]
+a <- a[myvars]
+state_choropleth(a)
+library(Hmisc) # for cut2
+# Figure 1
+a$value = cut2(a$value, cuts=c(2.0, 7.7, 10.2, 12.1, 14.9, 30.4))
+state_choropleth(a, title="2003", legend="Mortality rate per 100,000")
+
+# 2004
+a<-y[which(y$year=="2004"),]
+a <- a[myvars]
+state_choropleth(a)
+library(Hmisc) # for cut2
+# Figure 1
+a$value = cut2(a$value, cuts=c(2.0, 7.7, 10.2, 12.1, 14.9, 30.4))
+state_choropleth(a, title="2004", legend="Mortality rate per 100,000")
+
+# 2005
+a<-y[which(y$year=="2005"),]
+a <- a[myvars]
+state_choropleth(a)
+library(Hmisc) # for cut2
+# Figure 1
+a$value = cut2(a$value, cuts=c(2.0, 7.7, 10.2, 12.1, 14.9, 30.4))
+state_choropleth(a, title="2005", legend="Mortality rate per 100,000")
+
+# 2006
+a<-y[which(y$year=="2006"),]
+a <- a[myvars]
+state_choropleth(a)
+library(Hmisc) # for cut2
+# Figure 1
+a$value = cut2(a$value, cuts=c(2.0, 7.7, 10.2, 12.1, 14.9, 30.4))
+state_choropleth(a, title="2006", legend="Mortality rate per 100,000")
+
+# 2007
+a<-y[which(y$year=="2007"),]
+a <- a[myvars]
+state_choropleth(a)
+library(Hmisc) # for cut2
+# Figure 1
+a$value = cut2(a$value, cuts=c(2.0, 7.7, 10.2, 12.1, 14.9, 30.4))
+state_choropleth(a, title="2007", legend="Mortality rate per 100,000")
+
+# 2008
+a<-y[which(y$year=="2008"),]
+a <- a[myvars]
+state_choropleth(a)
+library(Hmisc) # for cut2
+# Figure 1
+a$value = cut2(a$value, cuts=c(2.0, 7.7, 10.2, 12.1, 14.9, 30.4))
+state_choropleth(a, title="2008", legend="Mortality rate per 100,000")
+
+# 2009
+a<-y[which(y$year=="2009"),]
+a <- a[myvars]
+state_choropleth(a)
+library(Hmisc) # for cut2
+# Figure 1
+a$value = cut2(a$value, cuts=c(2.0, 7.7, 10.2, 12.1, 14.9, 30.4))
+state_choropleth(a, title="2009", legend="Mortality rate per 100,000")
+
+# 2010
+a<-y[which(y$year=="2010"),]
+a <- a[myvars]
+state_choropleth(a)
+library(Hmisc) # for cut2
+# Figure 1
+a$value = cut2(a$value, cuts=c(2.0, 7.7, 10.2, 12.1, 14.9, 30.4))
+state_choropleth(a, title="2010", legend="Mortality rate per 100,000")
+
+# 2011
+a<-y[which(y$year=="2011"),]
+a <- a[myvars]
+state_choropleth(a)
+library(Hmisc) # for cut2
+# Figure 1
+a$value = cut2(a$value, cuts=c(2.0, 7.7, 10.2, 12.1, 14.9, 30.4))
+state_choropleth(a, title="2011", legend="Mortality rate per 100,000")
+
+# 2012
+a<-y[which(y$year=="2012"),]
+a <- a[myvars]
+state_choropleth(a)
+library(Hmisc) # for cut2
+# Figure 1
+a$value = cut2(a$value, cuts=c(2.0, 7.7, 10.2, 12.1, 14.9, 30.4))
+state_choropleth(a, title="2012", legend="Mortality rate per 100,000")
+
+# 2013
+a<-y[which(y$year=="2013"),]
+a <- a[myvars]
+state_choropleth(a)
+library(Hmisc) # for cut2
+# Figure 1
+a$value = cut2(a$value, cuts=c(2.0, 7.7, 10.2, 12.1, 14.9, 30.4))
+state_choropleth(a, title="2013", legend="Mortality rate per 100,000")
+
+# 2014
+a<-y[which(y$year=="2014"),]
+a <- a[myvars]
+state_choropleth(a)
+library(Hmisc) # for cut2
+# Figure 1
+a$value = cut2(a$value, cuts=c(2.0, 7.7, 10.2, 12.1, 14.9, 30.4))
+state_choropleth(a, title="2014", legend="Mortality rate per 100,000")
+
+# 2015
+a<-y[which(y$year=="2015"),]
+a <- a[myvars]
+state_choropleth(a)
+library(Hmisc) # for cut2
+# Figure 1
+a$value = cut2(a$value, cuts=c(2.0, 7.7, 10.2, 12.1, 14.9, 30.4))
+state_choropleth(a, title="2015", legend="Mortality rate per 100,000")
+
+
+# YPLL
+library(haven)
+y <- read_dta("~/Google Drive/Gun Violence Research/189_1_2001-2015/09_Analysis/03_stata/data/ypllstate.dta")
+head(y)
+str(y)
+
+# new variable region=fips
+y$region <- y$state
+y$value <- y$ageadjustedrate
+head(y)
+
+# select variables v1, v2, v3
+myvars <- c("region", "value")
+
+a<-y
+a <- a[myvars]
+state_choropleth(a)
+library(Hmisc) # for cut2
+# Figure 1
+a$value = cut2(a$value, cuts=c(72.6, 198.1, 285.9, 336.8, 410.5, 739))
+state_choropleth(a, title=" ", legend="Age-adjusted YPLL rate per 100,000")
+
+
+
+
+
+
+#####################################################################################
+#####################################################################################
+#####################################################################################
