@@ -3,4 +3,4 @@ This project is about the differences in the temporal patterns of mortality and 
 
 Please refer to Scripts folder for Stata/R code.
 
-Please refer to Data folder for all the data sets.
+Please refer to [Data](https://github.com/zuoyi93/Gun-Violence-2001-2015/tree/master/Data) folder for all the data sets.
